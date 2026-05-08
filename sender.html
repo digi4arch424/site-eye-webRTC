@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="theme-color" content="#0a0c0e">
+  <title>Construction Cam — Sender</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <svg class="header-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M15 6.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0zM12 1a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 12 1zm0 14c-4.5 0-8 2-8 4v1h16v-1c0-2-3.5-4-8-4z"/>
+      </svg>
+      <span class="header-title">Construction Cam</span>
+      <span class="header-sub">SENDER / <span id="cameraIdDisplay">site-cam-001</span></span>
+    </header>
+
+    <main class="main">
+
+      <!-- Server Config -->
+      <div class="config-section">
+        <div class="config-title">Signaling Server</div>
+        <div class="config-row">
+          <input
+            type="text"
+            id="serverUrlInput"
+            class="config-input"
+            placeholder="ws://YOUR_VPS_IP:8080"
+          />
+          <button class="btn" id="connectBtn" onclick="applyServerUrl()">Connect</button>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div class="status-bar">
+        <span id="status" class="status status--info">Initialising…</span>
+        <span class="status-indicator"></span>
+      </div>
+
+      <!-- Video preview -->
+      <div class="video-panel">
+        <div class="video-label">LOCAL PREVIEW</div>
+        <div class="corner-mark corner-mark--tl"></div>
+        <div class="corner-mark corner-mark--tr"></div>
+        <div class="corner-mark corner-mark--bl"></div>
+        <div class="corner-mark corner-mark--br"></div>
+        <div class="video-wrap">
+          <div class="video-placeholder" id="placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15 6.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0zM12 1a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 12 1zm0 14c-4.5 0-8 2-8 4v1h16v-1c0-2-3.5-4-8-4z"/>
+            </svg>
+            Camera not started
+          </div>
+          <video id="localVideo" autoplay muted playsinline></video>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button class="btn" id="startBtn">▶ Start Stream</button>
+      </div>
+
+      <!-- Info -->
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="info-label">Camera</div>
+          <div class="info-value" id="infoCamera">—</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">Resolution</div>
+          <div class="info-value">1280 × 720</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">Frame Rate</div>
+          <div class="info-value">15 fps</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">Site ID</div>
+          <div class="info-value" id="infoSite">site-alpha</div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="sender.js"></script>
+  <script>
+    // Pre-fill server URL from config
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('serverUrlInput').value = CONFIG.SIGNALING_SERVER_URL;
+      document.getElementById('cameraIdDisplay').textContent = CONFIG.CAMERA_ID;
+      document.getElementById('infoSite').textContent = CONFIG.SITE_ID;
+    });
+
+    function applyServerUrl() {
+      const url = document.getElementById('serverUrlInput').value.trim();
+      if (url) {
+        CONFIG.SIGNALING_SERVER_URL = url;
+        connectSignaling();
+      }
+    }
+
+    // Hide placeholder when stream starts
+    const origStart = startStream;
+  </script>
+</body>
+</html>

@@ -1,181 +1,123 @@
 /**
- * viewer.js — Remote stream viewer logic
- * Receives WebRTC stream from sender via signaling server.
+ * viewer.js — Remote stream viewer logic (PeerJS)
+ * Calls the sender peer and displays the incoming video stream.
  */
 
-let peerConnection = null;
-let ws = null;
-let wsReconnectTimer = null;
-let backoff = null;
+let peer       = null;
+let activeCall = null;
+let backoff    = null;
+let retryTimer = null;
+let callTimer  = null;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
-  connectSignaling();
+  initPeer();
 });
 
-// ─── WebSocket Signaling ──────────────────────────────────────────────────────
-function connectSignaling() {
-  if (ws) {
-    ws.onclose = null;
-    ws.onerror = null;
-    ws.close();
+// ─── PeerJS Setup ─────────────────────────────────────────────────────────────
+function initPeer() {
+  if (peer && !peer.destroyed) peer.destroy();
+
+  setStatus("status", "Connecting to PeerJS server…", "connecting");
+  log("Initialising viewer peer");
+
+  peer = new Peer({ debug: 1 });
+
+  peer.on("open", (id) => {
+    backoff.reset();
+    log("Viewer peer open, ID:", id);
+    setStatus("status", "Connected — calling camera…", "connecting");
+    callSender();
+  });
+
+  peer.on("disconnected", () => {
+    log("Peer disconnected");
+    setStatus("status", "Disconnected. Reconnecting…", "error");
+    scheduleReconnect();
+  });
+
+  peer.on("error", (err) => {
+    log("Peer error:", err.type, err.message);
+    if (err.type === "peer-unavailable") {
+      // Sender not online yet — retry
+      setStatus("status", "Camera not online yet. Retrying…", "connecting");
+      clearTimeout(callTimer);
+      callTimer = setTimeout(callSender, 3000);
+    } else if (err.type === "network" || err.type === "server-error") {
+      scheduleReconnect();
+    } else {
+      setStatus("status", `Error: ${err.type}`, "error");
+    }
+  });
+}
+
+function callSender() {
+  if (!peer || peer.destroyed) return;
+  log("Calling sender:", CONFIG.SENDER_PEER_ID);
+
+  if (activeCall) {
+    activeCall.close();
+    activeCall = null;
   }
 
-  setStatus("status", "Connecting to signaling server…", "connecting");
-  log("Connecting:", CONFIG.SIGNALING_SERVER_URL);
-
-  try {
-    ws = new WebSocket(CONFIG.SIGNALING_SERVER_URL);
-  } catch (e) {
-    log("WebSocket creation failed:", e);
-    scheduleReconnect();
+  const call = peer.call(CONFIG.SENDER_PEER_ID, null); // no local stream needed
+  if (!call) {
+    log("Call failed — retrying");
+    callTimer = setTimeout(callSender, 3000);
     return;
   }
 
-  ws.onopen = () => {
-    log("Signaling server connected");
-    backoff.reset();
-    setStatus("status", "Connected — waiting for camera feed…", "connected");
+  activeCall = call;
 
-    const regMsg = buildMessage("register");
-    regMsg.role = "viewer";
-    ws.send(JSON.stringify(regMsg));
-  };
+  call.on("stream", (remoteStream) => {
+    log("Remote stream received");
+    const video = document.getElementById("remoteVideo");
+    video.srcObject = remoteStream;
+    video.classList.add("active");
+    document.getElementById("placeholder").style.display = "none";
+    setStatus("status", "🟢 Live stream connected", "streaming");
+    showLiveBadge(true);
+    updateConnectedAt();
+  });
 
-  ws.onmessage = async (event) => {
-    let msg;
-    try {
-      msg = JSON.parse(event.data);
-    } catch {
-      return;
-    }
+  call.on("close", () => {
+    log("Call closed — sender disconnected");
+    setStatus("status", "Camera disconnected. Reconnecting…", "error");
+    showLiveBadge(false);
+    const video = document.getElementById("remoteVideo");
+    video.srcObject = null;
+    video.classList.remove("active");
+    document.getElementById("placeholder").style.display = "";
+    activeCall = null;
+    callTimer = setTimeout(callSender, 3000);
+  });
 
-    log("Signal received:", msg.type);
+  call.on("error", (err) => {
+    log("Call error:", err);
+    callTimer = setTimeout(callSender, 3000);
+  });
 
-    switch (msg.type) {
-      case "sender-ready":
-        log("Sender is online");
-        setStatus("status", "Camera online — waiting for stream offer…", "connected");
-        break;
-
-      case "offer":
-        await handleOffer(msg.payload);
-        break;
-
-      case "ice-candidate":
-        await handleRemoteIce(msg.payload);
-        break;
-
-      case "sender-disconnected":
-        log("Sender disconnected");
-        setStatus("status", "Camera disconnected. Waiting for reconnect…", "error");
-        const video = document.getElementById("remoteVideo");
-        video.srcObject = null;
-        video.classList.remove("active");
-        if (peerConnection) {
-          peerConnection.close();
-          peerConnection = null;
-        }
-        break;
-    }
-  };
-
-  ws.onclose = () => {
-    log("Signaling disconnected");
-    setStatus("status", "Disconnected. Reconnecting…", "error");
-    scheduleReconnect();
-  };
-
-  ws.onerror = (e) => {
-    log("WebSocket error:", e);
-  };
+  setStatus("status", "Calling camera — waiting for stream…", "connecting");
 }
 
 function scheduleReconnect() {
-  clearTimeout(wsReconnectTimer);
+  clearTimeout(retryTimer);
   const delay = backoff.next();
-  log(`Reconnecting in ${delay}ms…`);
-  wsReconnectTimer = setTimeout(connectSignaling, delay);
+  retryTimer = setTimeout(() => {
+    if (peer && !peer.destroyed) peer.reconnect();
+    else initPeer();
+  }, delay);
 }
 
-function sendSignal(type, payload = {}) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(buildMessage(type, payload)));
+function showLiveBadge(visible) {
+  const badge = document.getElementById("liveBadge");
+  if (badge) badge.classList.toggle("visible", visible);
+  const stateEl = document.getElementById("infoState");
+  if (stateEl) stateEl.textContent = visible ? "Live" : "Offline";
 }
 
-// ─── WebRTC ───────────────────────────────────────────────────────────────────
-function createPeerConnection() {
-  if (peerConnection) {
-    peerConnection.close();
-  }
-
-  peerConnection = new RTCPeerConnection({ iceServers: CONFIG.ICE_SERVERS });
-  log("PeerConnection created");
-
-  // Receive remote stream
-  peerConnection.ontrack = ({ streams }) => {
-    log("Remote track received");
-    const video = document.getElementById("remoteVideo");
-    video.srcObject = streams[0];
-    video.classList.add("active");
-    setStatus("status", "🟢 Live stream connected", "streaming");
-  };
-
-  peerConnection.onicecandidate = ({ candidate }) => {
-    if (candidate) {
-      log("Sending ICE candidate");
-      sendSignal("ice-candidate", candidate.toJSON());
-    }
-  };
-
-  peerConnection.onconnectionstatechange = () => {
-    const state = peerConnection.connectionState;
-    log("PeerConnection state:", state);
-
-    const stateMap = {
-      connecting: ["Establishing connection…", "connecting"],
-      connected: ["🟢 Stream connected", "streaming"],
-      disconnected: ["Stream disconnected", "error"],
-      failed: ["Connection failed", "error"],
-      closed: ["Connection closed", "info"],
-    };
-
-    const [text, css] = stateMap[state] || ["Unknown state", "info"];
-    setStatus("status", text, css);
-  };
-
-  peerConnection.oniceconnectionstatechange = () => {
-    log("ICE state:", peerConnection.iceConnectionState);
-  };
-
-  return peerConnection;
-}
-
-async function handleOffer(offer) {
-  log("Received SDP offer — creating answer");
-  setStatus("status", "Received offer — connecting…", "connecting");
-
-  createPeerConnection();
-
-  try {
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    log("Sending SDP answer");
-    sendSignal("answer", answer);
-  } catch (err) {
-    log("Failed to handle offer:", err);
-    setStatus("status", "Failed to process stream offer. Check console.", "error");
-  }
-}
-
-async function handleRemoteIce(candidate) {
-  if (!peerConnection) return;
-  try {
-    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-    log("Added remote ICE candidate");
-  } catch (err) {
-    log("Failed to add ICE candidate:", err);
-  }
+function updateConnectedAt() {
+  const el = document.getElementById("infoConnectedAt");
+  if (el && el.textContent === "—") el.textContent = new Date().toLocaleTimeString();
 }

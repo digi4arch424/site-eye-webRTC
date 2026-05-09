@@ -1,40 +1,25 @@
 # Construction Camera System
 
-Live WebRTC camera streaming from an Android phone to a desktop browser. Built as a primitive but expandable foundation for construction site monitoring.
+Live WebRTC camera streaming from an Android phone to a desktop browser.
+**No server required** — uses PeerJS free cloud signaling.
 
 ```
-Android Chrome (sender)  ──WebSocket──►  VPS Signaling Server  ◄──WebSocket──  Desktop Browser (viewer)
-                                                │
-                                        WebRTC P2P stream
-                                   (bypasses server after handshake)
+Android Chrome (sender)  ──PeerJS Cloud──►  Desktop Browser (viewer)
+                              (signaling only — video is P2P)
 ```
 
 ## Quick Start
 
-### 1. Signaling Server (VPS)
+### 1. Deploy to GitHub Pages
 
-```bash
-cd signaling-server
-npm install
-node server.js
-```
+Push the repo and enable Pages: Settings → Pages → Branch: `main` → Folder: `/ (root)`
 
-Open port 8080 TCP on your VPS firewall.
+### 2. Stream
 
-### 2. Configure & Deploy Frontend
+- **Android**: Open `sender.html` → tap **▶ Start Stream** → allow camera
+- **Desktop**: Open `viewer.html` → stream appears automatically
 
-Edit `app.js` and set your VPS IP:
-
-```js
-SIGNALING_SERVER_URL: "ws://YOUR_VPS_IP:8080",
-```
-
-Push to GitHub and enable Pages: Settings → Pages → Branch: `main` → Folder: `/ (root)`.
-
-### 3. Stream
-
-- **Android**: Open `sender.html` in Chrome → tap **Connect** → tap **▶ Start Stream** → allow camera
-- **Desktop**: Open `viewer.html` → tap **Connect** → stream appears automatically
+That's it. No server setup needed.
 
 ---
 
@@ -44,28 +29,41 @@ Push to GitHub and enable Pages: Settings → Pages → Branch: `main` → Folde
 construction-cam/
 ├── README.md
 ├── .gitignore
+├── index.html              # Landing page
 ├── sender.html             # Android camera sender
 ├── viewer.html             # Desktop viewer
 ├── app.js                  # Shared config & utilities
-├── sender.js               # Sender WebRTC logic
-├── viewer.js               # Viewer WebRTC logic
+├── sender.js               # Sender PeerJS + WebRTC logic
+├── viewer.js               # Viewer PeerJS + WebRTC logic
 ├── style.css               # UI theme
-├── signaling-server/       # Deploy to VPS
-│   ├── server.js           # WebSocket relay server
-│   └── package.json
 └── docs/
-    └── architecture.md     # WebRTC flow, scaling notes, future modules
+    └── architecture.md     # WebRTC flow, milestone roadmap
+```
+
+---
+
+## Configuration
+
+To avoid peer ID conflicts with other deployments, edit `app.js`:
+
+```js
+SENDER_PEER_ID: "your-unique-site-cam-id",
 ```
 
 ---
 
 ## Requirements
 
-- **VPS**: Node.js ≥ 18, port 8080 open
-- **Sender**: Android Chrome (or any mobile browser with `getUserMedia`)
+- **Sender**: Android Chrome (or any browser with `getUserMedia`)
 - **Viewer**: Any modern desktop browser
+- **Server**: None — PeerJS free cloud handles signaling
 
-## Docs
+## Milestones
 
-- [Signaling server setup](signaling-server/README.md)
-- [Architecture & scaling](docs/architecture.md)
+- ✅ M1 — Browser-to-browser streaming (current)
+- 🔜 M2 — GPS + compass metadata overlay
+- 🔜 M3 — Visual marker anchoring (AR.js)
+- 🔜 M4 — 3D overlay on viewer (Three.js)
+- 🔜 M5 — Multiset WebXR VPS integration
+- 🔜 M6 — Site scan import + BIM overlay
+- 🔜 M7 — Full construction platform

@@ -10,30 +10,16 @@
 <body>
   <div class="app">
 
-    <!-- Header -->
     <header class="header">
       <svg class="header-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M15 6.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0zM12 1a5.5 5.5 0 1 0 0 11A5.5 5.5 0 0 0 12 1zm0 14c-4.5 0-8 2-8 4v1h16v-1c0-2-3.5-4-8-4z"/>
       </svg>
       <span class="header-title">Construction Cam</span>
-      <span class="header-sub">SENDER / <span id="cameraIdDisplay">site-cam-001</span></span>
+      <span class="header-sub">SENDER</span>
+      <a href="index.html" class="home-link">← Home</a>
     </header>
 
     <main class="main">
-
-      <!-- Server Config -->
-      <div class="config-section">
-        <div class="config-title">Signaling Server</div>
-        <div class="config-row">
-          <input
-            type="text"
-            id="serverUrlInput"
-            class="config-input"
-            placeholder="ws://YOUR_VPS_IP:8080"
-          />
-          <button class="btn" id="connectBtn" onclick="applyServerUrl()">Connect</button>
-        </div>
-      </div>
 
       <!-- Status -->
       <div class="status-bar">
@@ -67,8 +53,8 @@
       <!-- Info -->
       <div class="info-grid">
         <div class="info-item">
-          <div class="info-label">Camera</div>
-          <div class="info-value" id="infoCamera">—</div>
+          <div class="info-label">Peer ID</div>
+          <div class="info-value" id="peerIdDisplay">—</div>
         </div>
         <div class="info-item">
           <div class="info-label">Resolution</div>
@@ -80,33 +66,15 @@
         </div>
         <div class="info-item">
           <div class="info-label">Site ID</div>
-          <div class="info-value" id="infoSite">site-alpha</div>
+          <div class="info-value">site-alpha</div>
         </div>
       </div>
 
     </main>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
   <script src="app.js"></script>
   <script src="sender.js"></script>
-  <script>
-    // Pre-fill server URL from config
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('serverUrlInput').value = CONFIG.SIGNALING_SERVER_URL;
-      document.getElementById('cameraIdDisplay').textContent = CONFIG.CAMERA_ID;
-      document.getElementById('infoSite').textContent = CONFIG.SITE_ID;
-    });
-
-    function applyServerUrl() {
-      const url = document.getElementById('serverUrlInput').value.trim();
-      if (url) {
-        CONFIG.SIGNALING_SERVER_URL = url;
-        connectSignaling();
-      }
-    }
-
-    // Hide placeholder when stream starts
-    const origStart = startStream;
-  </script>
 </body>
 </html>

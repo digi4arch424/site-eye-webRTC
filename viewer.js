@@ -1,28 +1,36 @@
 /**
  * viewer.js — Remote stream viewer (PeerJS)
  *
- * Flow:
- * 1. Page loads → connect to PeerJS with random ID
- * 2. Call sender's fixed ID
- * 3. If sender not ready yet → retry every 3s until sender answers
- * 4. On stream event → display video
+ * PeerJS 1.5.x requires a local stream when calling — even for receive-only.
+ * We create a silent dummy stream to satisfy the API.
+ * Only the sender's remote stream is displayed.
  */
 
 let peer       = null;
 let activeCall = null;
 let backoff    = null;
 let retryTimer = null;
+let dummyStream = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   initPeer();
 });
 
+// ─── Create a silent dummy stream for PeerJS ──────────────────────────────────
+function getDummyStream() {
+  if (dummyStream) return dummyStream;
+  const ctx = new AudioContext();
+  const dest = ctx.createMediaStreamDestination();
+  dummyStream = dest.stream;
+  return dummyStream;
+}
+
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
   setStatus("status", "Connecting to PeerJS…", "connecting");
 
-  peer = new Peer({ debug: 1 }); // random viewer ID
+  peer = new Peer({ debug: 1 });
 
   peer.on("open", (id) => {
     backoff.reset();
@@ -40,7 +48,6 @@ function initPeer() {
   peer.on("error", (err) => {
     log("Peer error:", err.type, err.message);
     if (err.type === "peer-unavailable") {
-      // Sender not registered yet — keep retrying
       setStatus("status", "Camera not online yet. Retrying…", "connecting");
       clearTimeout(retryTimer);
       retryTimer = setTimeout(callSender, 3000);
@@ -54,13 +61,12 @@ function initPeer() {
 
 function callSender() {
   if (!peer || peer.destroyed) return;
-
   if (activeCall) { activeCall.close(); activeCall = null; }
 
   log("Calling sender:", CONFIG.SENDER_PEER_ID);
 
-  // Viewer has no local stream — pass null (media-only receive)
-  const call = peer.call(CONFIG.SENDER_PEER_ID, null);
+  // PeerJS 1.5.x requires a stream — use silent dummy
+  const call = peer.call(CONFIG.SENDER_PEER_ID, getDummyStream());
 
   if (!call) {
     log("Call returned null — retrying");
@@ -83,7 +89,7 @@ function callSender() {
   });
 
   call.on("close", () => {
-    log("Call closed — sender disconnected");
+    log("Sender disconnected");
     setStatus("status", "Camera disconnected. Reconnecting…", "error");
     showLiveBadge(false);
     const video = document.getElementById("remoteVideo");

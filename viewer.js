@@ -46,6 +46,7 @@ function initPeer() {
   peer.on("open", (id) => {
     backoff.reset();
     log("Viewer peer open, ID:", id);
+    if (window.debugSetPeer) debugSetPeer(id.slice(0, 8) + "…");
     setStatus("status", "Connected — calling camera…", "connecting");
     callSender();
   });
@@ -94,6 +95,8 @@ function callSender() {
     video.classList.add("active");
     document.getElementById("placeholder").style.display = "none";
     setStatus("status", "🟢 Live stream connected", "streaming");
+    if (window.debugSetStream) debugSetStream("receiving ✓");
+    if (window.debugSetConn) debugSetConn("connected");
     showLiveBadge(true);
     updateConnectedAt();
   });

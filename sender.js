@@ -34,6 +34,7 @@ function initPeer() {
     backoff.reset();
     log("Sender registered, ID:", id);
     document.getElementById("peerIdDisplay").textContent = id;
+    if (window.debugSetPeer) debugSetPeer(id.slice(0, 8) + "…");
     setStatus("status", "Ready — press ▶ Start Stream, then open viewer on desktop.", "connected");
   });
 
@@ -78,10 +79,13 @@ function initPeer() {
 function answerCall(call) {
   call.answer(localStream);
   log("Call answered with live stream");
+  if (window.debugSetStream) debugSetStream("live ✓");
+  if (window.debugSetConn) debugSetConn("streaming");
   setStatus("status", "🟢 Streaming live to viewer", "streaming");
 
   call.on("close", () => {
     log("Viewer disconnected");
+    if (window.debugSetConn) debugSetConn("closed");
     setStatus("status", "🟡 Camera active — viewer disconnected. Waiting…", "streaming");
   });
   call.on("error", (err) => log("Call error:", err));

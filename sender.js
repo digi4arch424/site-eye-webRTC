@@ -1,8 +1,9 @@
 /**
- * sender.js — Camera sender (PeerJS + full ICE stack)
+ * sender.js — Camera sender (PeerJS)
+ * Uses ICE_CONFIG from ice.js
  *
  * Flow:
- * 1. Page loads → register on PeerJS with fixed ID + full ICE config
+ * 1. Page loads → register on PeerJS with fixed ID + ICE_CONFIG
  * 2. Viewer calls → store in pendingCall (do NOT answer yet)
  * 3. User taps Start Stream → getUserMedia() resolves → localStream ready
  * 4. call.answer(localStream) — stream guaranteed to exist at answer time
@@ -26,7 +27,7 @@ function initPeer() {
 
   peer = new Peer(CONFIG.SENDER_PEER_ID, {
     debug: 1,
-    config: { iceServers: CONFIG.ICE_SERVERS },
+    config: ICE_CONFIG,
   });
 
   peer.on("open", (id) => {

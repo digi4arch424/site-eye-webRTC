@@ -1,8 +1,9 @@
 /**
- * viewer.js — Remote stream viewer (PeerJS + full ICE stack)
+ * viewer.js — Remote stream viewer (PeerJS)
+ * Uses ICE_CONFIG from ice.js
  *
- * PeerJS 1.5.x requires a local stream when calling.
- * We use a silent AudioContext dummy stream to satisfy the API.
+ * PeerJS 1.5.x requires a local stream when calling — even receive-only.
+ * A silent dummy stream satisfies the API without sending any data.
  * Only the sender's remote stream is displayed.
  */
 
@@ -25,7 +26,7 @@ function getDummyStream() {
     const dest = ctx.createMediaStreamDestination();
     dummyStream = dest.stream;
   } catch (e) {
-    // Fallback: canvas silent video stream
+    // Fallback: silent canvas stream
     const canvas = document.createElement("canvas");
     canvas.width = 1; canvas.height = 1;
     dummyStream = canvas.captureStream(1);
@@ -39,7 +40,7 @@ function initPeer() {
 
   peer = new Peer({
     debug: 1,
-    config: { iceServers: CONFIG.ICE_SERVERS },
+    config: ICE_CONFIG,
   });
 
   peer.on("open", (id) => {

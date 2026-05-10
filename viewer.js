@@ -1,15 +1,15 @@
 /**
- * viewer.js — Remote stream viewer (PeerJS)
+ * viewer.js — Remote stream viewer (PeerJS + full ICE stack)
  *
- * PeerJS 1.5.x requires a local stream when calling — even for receive-only.
- * We create a silent dummy stream to satisfy the API.
+ * PeerJS 1.5.x requires a local stream when calling.
+ * We use a silent AudioContext dummy stream to satisfy the API.
  * Only the sender's remote stream is displayed.
  */
 
-let peer       = null;
-let activeCall = null;
-let backoff    = null;
-let retryTimer = null;
+let peer        = null;
+let activeCall  = null;
+let backoff     = null;
+let retryTimer  = null;
 let dummyStream = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -17,12 +17,19 @@ document.addEventListener("DOMContentLoaded", () => {
   initPeer();
 });
 
-// ─── Create a silent dummy stream for PeerJS ──────────────────────────────────
+// Silent dummy stream — required by PeerJS 1.5.x to initiate a call
 function getDummyStream() {
   if (dummyStream) return dummyStream;
-  const ctx = new AudioContext();
-  const dest = ctx.createMediaStreamDestination();
-  dummyStream = dest.stream;
+  try {
+    const ctx = new AudioContext();
+    const dest = ctx.createMediaStreamDestination();
+    dummyStream = dest.stream;
+  } catch (e) {
+    // Fallback: canvas silent video stream
+    const canvas = document.createElement("canvas");
+    canvas.width = 1; canvas.height = 1;
+    dummyStream = canvas.captureStream(1);
+  }
   return dummyStream;
 }
 
@@ -30,7 +37,10 @@ function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
   setStatus("status", "Connecting to PeerJS…", "connecting");
 
-  peer = new Peer({ debug: 1 });
+  peer = new Peer({
+    debug: 1,
+    config: { iceServers: CONFIG.ICE_SERVERS },
+  });
 
   peer.on("open", (id) => {
     backoff.reset();
@@ -40,7 +50,7 @@ function initPeer() {
   });
 
   peer.on("disconnected", () => {
-    log("Peer disconnected — reconnecting…");
+    log("Disconnected — reconnecting…");
     setStatus("status", "Disconnected. Reconnecting…", "error");
     scheduleReconnect();
   });
@@ -65,7 +75,6 @@ function callSender() {
 
   log("Calling sender:", CONFIG.SENDER_PEER_ID);
 
-  // PeerJS 1.5.x requires a stream — use silent dummy
   const call = peer.call(CONFIG.SENDER_PEER_ID, getDummyStream());
 
   if (!call) {

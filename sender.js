@@ -1,22 +1,19 @@
 /**
- * sender.js — Camera sender (PeerJS)
+ * sender.js — Camera sender (PeerJS + full ICE stack)
  *
- * Correct flow:
- * 1. Page loads → register on PeerJS immediately with fixed ID
- * 2. Viewer calls → store the call in pendingCall (do NOT answer yet)
+ * Flow:
+ * 1. Page loads → register on PeerJS with fixed ID + full ICE config
+ * 2. Viewer calls → store in pendingCall (do NOT answer yet)
  * 3. User taps Start Stream → getUserMedia() resolves → localStream ready
- * 4. Answer pendingCall with localStream attached — stream exists at answer time
- *
- * Key rule: call.answer(stream) must be called with stream already in hand.
+ * 4. call.answer(localStream) — stream guaranteed to exist at answer time
  */
 
 let localStream = null;
 let peer        = null;
-let pendingCall = null;   // viewer's call held until camera is ready
+let pendingCall = null;
 let backoff     = null;
 let retryTimer  = null;
 
-// ─── Init — register on PeerJS immediately ────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   document.getElementById("startBtn").addEventListener("click", startStream);
@@ -27,7 +24,10 @@ function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
   setStatus("status", "Connecting to PeerJS…", "connecting");
 
-  peer = new Peer(CONFIG.SENDER_PEER_ID, { debug: 1 });
+  peer = new Peer(CONFIG.SENDER_PEER_ID, {
+    debug: 1,
+    config: { iceServers: CONFIG.ICE_SERVERS },
+  });
 
   peer.on("open", (id) => {
     backoff.reset();
@@ -36,38 +36,26 @@ function initPeer() {
     setStatus("status", "Ready — press ▶ Start Stream, then open viewer on desktop.", "connected");
   });
 
-  // Viewer calls — hold it until camera is ready
   peer.on("call", (call) => {
     log("Viewer is calling…");
-
-    // Close any previous pending call
-    if (pendingCall) {
-      pendingCall.close();
-      pendingCall = null;
-    }
+    if (pendingCall) { pendingCall.close(); pendingCall = null; }
 
     if (localStream) {
-      // Camera already running — answer immediately
-      log("Stream exists — answering now");
+      log("Stream exists — answering immediately");
       answerCall(call);
     } else {
-      // Camera not started — hold the call
-      log("Stream not ready — holding call until camera starts");
+      log("Stream not ready — holding call");
       pendingCall = call;
-
-      // Handle viewer hanging up before camera starts
       call.on("close", () => {
-        log("Viewer hung up while waiting");
         if (pendingCall === call) pendingCall = null;
-        setStatus("status", "Viewer disconnected. Press ▶ Start Stream then reopen viewer.", "error");
+        setStatus("status", "Viewer disconnected. Start stream then reopen viewer.", "error");
       });
-
       setStatus("status", "Viewer connected — press ▶ Start Stream to send video.", "connected");
     }
   });
 
   peer.on("disconnected", () => {
-    log("Peer disconnected — reconnecting…");
+    log("Disconnected — reconnecting…");
     setStatus("status", "Disconnected. Reconnecting…", "error");
     scheduleReconnect();
   });
@@ -75,7 +63,6 @@ function initPeer() {
   peer.on("error", (err) => {
     log("Peer error:", err.type, err.message);
     if (err.type === "unavailable-id") {
-      // Another sender session is still alive — wait and retry
       log("ID in use — retrying in 3s");
       setStatus("status", "ID conflict — retrying…", "connecting");
       retryTimer = setTimeout(initPeer, 3000);
@@ -87,21 +74,18 @@ function initPeer() {
   });
 }
 
-// ─── Answer call with stream attached ────────────────────────────────────────
 function answerCall(call) {
-  call.answer(localStream);  // stream is guaranteed to exist here
+  call.answer(localStream);
   log("Call answered with live stream");
+  setStatus("status", "🟢 Streaming live to viewer", "streaming");
 
   call.on("close", () => {
     log("Viewer disconnected");
-    setStatus("status", "🟡 Streaming — viewer disconnected. Waiting for reconnect…", "streaming");
+    setStatus("status", "🟡 Camera active — viewer disconnected. Waiting…", "streaming");
   });
-
   call.on("error", (err) => log("Call error:", err));
-  setStatus("status", "🟢 Streaming live to viewer", "streaming");
 }
 
-// ─── Camera — start only when user taps button ────────────────────────────────
 async function startStream() {
   const btn = document.getElementById("startBtn");
   btn.disabled = true;
@@ -121,7 +105,6 @@ async function startStream() {
     return;
   }
 
-  // Show preview
   const video = document.getElementById("localVideo");
   video.srcObject = localStream;
   video.classList.add("active");
@@ -129,7 +112,6 @@ async function startStream() {
   btn.textContent = "Streaming…";
   log("Camera ready");
 
-  // Answer any call that arrived before camera was ready
   if (pendingCall) {
     log("Answering held call now that stream is ready");
     answerCall(pendingCall);

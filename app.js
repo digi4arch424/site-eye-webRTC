@@ -2,7 +2,10 @@
  * app.js — Shared configuration and utilities
  * Construction Camera System — M1
  *
- * ICE configuration is in ice.js — loaded separately.
+ * PEER_SERVER: points to your dedicated PeerJS server on Render.com
+ * Update host after deploying peerjs-server/ to Render.
+ *
+ * ICE configuration is in ice.js.
  */
 
 const CONFIG = {
@@ -10,6 +13,17 @@ const CONFIG = {
 
   CAMERA_ID: "site-cam-001",
   SITE_ID:   "site-alpha",
+
+  // ── Dedicated PeerJS server (Render.com) ────────────────────────────────────
+  // Replace host with your Render URL after deploying peerjs-server/
+  // e.g. "construction-cam-peer.onrender.com"
+  PEER_SERVER: {
+    host:   "YOUR-APP-NAME.onrender.com",  // ← update this
+    port:   443,
+    path:   "/construction-cam",
+    secure: true,                           // wss:// (required for HTTPS pages)
+    debug:  1,
+  },
 
   CAMERA_CONSTRAINTS: {
     video: {

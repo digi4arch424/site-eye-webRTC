@@ -39,7 +39,7 @@ function initPeer() {
   setStatus("status", "Connecting to PeerJS…", "connecting");
 
   peer = new Peer({
-    debug: 1,
+    ...CONFIG.PEER_SERVER,
     config: ICE_CONFIG,
   });
 

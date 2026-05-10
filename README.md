@@ -1,25 +1,43 @@
 # Construction Camera System
 
 Live WebRTC camera streaming from an Android phone to a desktop browser.
-**No server required** — uses PeerJS free cloud signaling.
+No native app required — runs entirely in the browser.
 
 ```
-Android Chrome (sender)  ──PeerJS Cloud──►  Desktop Browser (viewer)
-                              (signaling only — video is P2P)
+Android Chrome (sender)  ──PeerJS──►  peerjs-signaling-server  ◄──PeerJS──  Desktop Browser (viewer)
+                                        (signaling only)
+                              WebRTC P2P stream (direct after handshake)
 ```
 
 ## Quick Start
 
-### 1. Deploy to GitHub Pages
+### 1. Deploy the Signaling Server
 
-Push the repo and enable Pages: Settings → Pages → Branch: `main` → Folder: `/ (root)`
+Deploy [peerjs-signaling-server](https://github.com/digi4arch424/peerjs-signaling-server) to Render.com.
+Get your URL: `https://YOUR-NAME.onrender.com`
 
-### 2. Stream
+### 2. Configure
+
+Edit `app.js` with your Render URL:
+
+```js
+PEER_SERVER: {
+  host:   "YOUR-NAME.onrender.com",
+  port:   443,
+  path:   "/construction-cam",
+  secure: true,
+}
+```
+
+### 3. Deploy Frontend
+
+Push to GitHub and enable Pages:
+Settings → Pages → Branch: `main` → Folder: `/ (root)`
+
+### 4. Stream
 
 - **Android**: Open `sender.html` → tap **▶ Start Stream** → allow camera
 - **Desktop**: Open `viewer.html` → stream appears automatically
-
-That's it. No server setup needed.
 
 ---
 
@@ -35,28 +53,24 @@ construction-cam/
 ├── app.js                  # Shared config & utilities
 ├── sender.js               # Sender PeerJS + WebRTC logic
 ├── viewer.js               # Viewer PeerJS + WebRTC logic
+├── ice.js                  # ICE server stack (STUN + TURN)
+├── debug.js                # Real-time debug panel
 ├── style.css               # UI theme
 └── docs/
-    └── architecture.md     # WebRTC flow, milestone roadmap
+    └── architecture.md
 ```
 
 ---
 
-## Configuration
+## Related Repos
 
-To avoid peer ID conflicts with other deployments, edit `app.js`:
-
-```js
-SENDER_PEER_ID: "your-unique-site-cam-id",
-```
-
----
+- [peerjs-signaling-server](https://github.com/digi4arch424/peerjs-signaling-server) — Dedicated PeerJS signaling server
 
 ## Requirements
 
 - **Sender**: Android Chrome (or any browser with `getUserMedia`)
 - **Viewer**: Any modern desktop browser
-- **Server**: None — PeerJS free cloud handles signaling
+- **Signaling**: [peerjs-signaling-server](https://github.com/digi4arch424/peerjs-signaling-server) on Render.com
 
 ## Milestones
 

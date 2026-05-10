@@ -2,8 +2,9 @@
  * app.js — Shared configuration and utilities
  * Construction Camera System — M1
  *
- * PEER_SERVER: points to your dedicated PeerJS server on Render.com
- * Update host after deploying peerjs-server/ to Render.
+ * PEER_SERVER: points to your deployed peerjs-signaling-server on Render.com
+ * See https://github.com/digi4arch424/peerjs-signaling-server
+ * Update host after deploying to Render.
  *
  * ICE configuration is in ice.js.
  */
@@ -14,14 +15,14 @@ const CONFIG = {
   CAMERA_ID: "site-cam-001",
   SITE_ID:   "site-alpha",
 
-  // ── Dedicated PeerJS server (Render.com) ────────────────────────────────────
-  // Replace host with your Render URL after deploying peerjs-server/
-  // e.g. "construction-cam-peer.onrender.com"
+  // ── Dedicated PeerJS signaling server (Render.com) ──────────────────────────
+  // Replace host with your Render URL after deploying peerjs-signaling-server.
+  // e.g. "peerjs-signaling-server.onrender.com"
   PEER_SERVER: {
-    host:   "YOUR-APP-NAME.onrender.com",  // ← update this
+    host:   "YOUR-NAME.onrender.com",  // ← update this after Render deploy
     port:   443,
     path:   "/construction-cam",
-    secure: true,                           // wss:// (required for HTTPS pages)
+    secure: true,
     debug:  1,
   },
 

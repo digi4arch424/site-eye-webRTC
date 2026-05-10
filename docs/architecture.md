@@ -5,39 +5,41 @@
 ```
 Android Chrome (sender.html)
         │
-        │  WebSocket (signaling)
+        │  PeerJS (signaling only)
         ▼
-   VPS Node.js  ←── WebSocket ──→  Desktop Browser (viewer.html)
-   (server.js)
+peerjs-signaling-server (Render.com)
+https://github.com/digi4arch424/peerjs-signaling-server
         │
-        │  WebRTC (direct P2P after signaling)
-        └──────────────────────────────────────┘
+        │  PeerJS (signaling only)
+        ▼
+Desktop Browser (viewer.html)
+        │
+        └──── WebRTC P2P stream (direct after handshake) ────┘
 ```
 
-The signaling server is only needed to exchange WebRTC session descriptions (SDP) and ICE candidates. Once the peer connection is established, video flows **directly** between peers (P2P) without passing through the VPS.
+The signaling server only brokers the initial WebRTC handshake.
+Once connected, video flows directly between devices (P2P).
 
 ---
 
 ## WebRTC Connection Flow
 
 ```
-SENDER                     SIGNALING SERVER              VIEWER
+SENDER                     PEERJS SERVER                 VIEWER
   │                               │                        │
-  │── register(role:sender) ─────►│                        │
-  │                               │◄─ register(role:viewer)─│
+  │── register(sender-id) ───────►│                        │
+  │                               │◄─ register(viewer-id) ─│
   │                               │                        │
-  │◄─── viewer-ready ─────────────│                        │
+  │◄─── incoming call ────────────│◄─── call(sender-id) ───│
   │                               │                        │
-  │  [createOffer()]              │                        │
-  │── offer(SDP) ────────────────►│── offer(SDP) ─────────►│
+  │  [getUserMedia()]             │                        │
+  │  [call.answer(stream)]        │                        │
+  │── SDP answer ────────────────►│── SDP answer ─────────►│
   │                               │                        │
-  │                               │   [createAnswer()]     │
-  │◄─ answer(SDP) ────────────────│◄─ answer(SDP) ─────────│
+  │◄─ ICE candidates ─────────────│◄─ ICE candidates ───────│
+  │── ICE candidates ────────────►│── ICE candidates ──────►│
   │                               │                        │
-  │── ice-candidate ─────────────►│── ice-candidate ───────►│
-  │◄─ ice-candidate ──────────────│◄─ ice-candidate ────────│
-  │                               │                        │
-  │◄═══════════════════════ WebRTC P2P stream ═════════════►│
+  │◄══════════════════════ WebRTC P2P stream ══════════════►│
 ```
 
 ---
@@ -45,125 +47,91 @@ SENDER                     SIGNALING SERVER              VIEWER
 ## File Structure
 
 ```
-construction-cam/
-├── frontend/           # Static files — deploy to GitHub Pages
-│   ├── sender.html     # Android camera sender page
-│   ├── viewer.html     # Desktop viewer page
-│   ├── app.js          # Shared config, utilities, message helpers
-│   ├── sender.js       # Sender WebRTC + WebSocket logic
-│   ├── viewer.js       # Viewer WebRTC + WebSocket logic
-│   └── style.css       # Shared industrial UI theme
-│
-├── signaling-server/   # Deploy to VPS
-│   ├── server.js       # WebSocket signaling relay
-│   └── package.json
-│
+construction-cam/           ← GitHub Pages (this repo)
+├── index.html              # Landing page
+├── sender.html             # Android camera sender
+├── viewer.html             # Desktop viewer
+├── app.js                  # Shared config & utilities
+├── sender.js               # Sender PeerJS + WebRTC logic
+├── viewer.js               # Viewer PeerJS + WebRTC logic
+├── ice.js                  # ICE server stack (STUN + TURN)
+├── debug.js                # Real-time debug panel
+├── style.css               # UI theme
 └── docs/
-    └── architecture.md  # This file
+    └── architecture.md
+
+peerjs-signaling-server/    ← Render.com (separate repo)
+├── server.js               # Express + PeerJS multi-path server
+└── package.json
 ```
 
 ---
 
-## Signaling Message Format
+## ICE Server Stack (ice.js)
 
-All messages use JSON with a common envelope:
-
-```json
-{
-  "type": "offer | answer | ice-candidate | register | viewer-ready | sender-ready | sender-disconnected",
-  "payload": {},
-  "cameraId": "site-cam-001",
-  "siteId": "site-alpha",
-  "timestamp": 1712345678000
-}
+```
+1. Direct P2P              — no server, fastest
+2. STUN (Google + Metered) — discovers public IP
+3. TURN UDP port 80        — relays video, most networks
+4. TURN TCP port 80        — bypasses UDP-blocking firewalls
+5. TURN TLS port 443       — bypasses corporate firewalls
+6. TURNS TLS TCP port 443  — last resort, most restrictive networks
 ```
 
-The `cameraId`, `siteId`, and `timestamp` fields are included in all messages now (even when unused) to support future filtering, routing, and analytics without breaking changes.
+Provider: Open Relay Project (Metered free tier, no API key required)
 
 ---
 
-## Camera Constraints
+## Signaling Message Flow (PeerJS)
+
+PeerJS abstracts WebSocket signaling internally.
+Key peer IDs:
 
 ```js
-{
-  video: {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 15, max: 30 },
-    facingMode: "environment"   // rear camera on mobile
-  },
-  audio: false
-}
+SENDER_PEER_ID: "construction-cam-sender-001"  // fixed, registered by sender
+VIEWER_PEER_ID: random UUID                     // assigned by PeerJS to viewer
 ```
+
+Viewer calls sender → sender answers with stream → P2P established.
 
 ---
 
-## ICE / STUN Configuration
+## Debug Panel (debug.js)
 
-MVP uses Google's public STUN servers only. This works when sender and viewer are on different public IPs with no symmetric NAT.
+Drop-in module. Remove `<script src="debug.js">` to disable in production.
 
+Log types: `error`, `warn`, `success`, `ice`, `network`, `ai`, `info`
+
+Future modules write to debug panel via:
 ```js
-iceServers: [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" }
-]
-```
-
-**When to add a TURN server:** If streaming fails on certain networks (corporate, carrier-grade NAT), add a TURN relay:
-```js
-{ urls: "turn:YOUR_TURN_SERVER", username: "user", credential: "pass" }
+window.debugLog("Multiset VPS position locked", "ai")
 ```
 
 ---
 
-## Reconnection Strategy
+## Milestone Roadmap
 
-- **WebSocket**: Exponential backoff, 2s → 30s max
-- **WebRTC**: Sender re-creates offer on `failed` or `disconnected` state
-- **Viewer**: Re-registers on WebSocket reconnect; waits for new offer
-
----
-
-## Future Module Structure
-
-The codebase is intentionally flat and modular. Future additions slot in without refactoring:
-
-```
-construction-cam/
-├── frontend/
-│   ├── modules/
-│   │   ├── tracking/     # AI object/person tracking overlay
-│   │   ├── bim/          # BIM model overlay (Three.js)
-│   │   ├── recording/    # MediaRecorder-based clip capture
-│   │   └── analytics/    # Frame analysis, heatmaps
-│   └── ...
-├── signaling-server/
-│   └── ...              # Add room management, auth here
-```
-
-**Extension points already in place:**
-- `cameraId` / `siteId` in every message → multi-camera routing ready
-- `timestamp` in every message → analytics / sync ready
-- Modular JS files → drop in new `<script>` tags without touching core
+| Milestone | Status | Description |
+|---|---|---|
+| M1 | ✅ Done | Browser-to-browser WebRTC streaming |
+| M2 | 🔜 | GPS + compass metadata overlay |
+| M3 | 🔜 | Visual marker anchoring (AR.js) |
+| M4 | 🔜 | 3D overlay on viewer (Three.js) |
+| M5 | 🔜 | Multiset WebXR VPS integration |
+| M6 | 🔜 | Site scan import + BIM overlay |
+| M7 | 🔜 | Full construction platform |
 
 ---
 
-## Scaling Notes
+## Future Scaling Notes
 
-| Stage | Change |
+| Need | Change |
 |---|---|
-| Multi-camera | Signaling server already keys sessions by `cameraId` |
-| Authentication | Add JWT check in `ws.on('connection')` before relaying |
-| Recording | Add `MediaRecorder` in `sender.js`, stream to S3/object store |
-| AI overlay | Add canvas overlay on `remoteVideo` in viewer; run model per frame |
-| BIM | Align Three.js scene to video perspective in viewer |
-| Multiple viewers | Change session from `{sender, viewer}` to `{sender, viewers: Set}` |
-
----
-
-## VPS Requirements
-
-- Ubuntu 20.04+ (or any Linux)
-- Node.js ≥ 18
-- Open port 8080 TCP inbound
-- 512MB RAM is sufficient for MVP
+| Multiple cameras | Add new `SENDER_PEER_ID` per camera in `app.js` |
+| Multiple viewers | PeerJS handles multiple callers natively |
+| New app on signaling server | Add path to `PEER_PATHS` env var on Render |
+| Authentication | Add JWT check in `peerjs-signaling-server/server.js` |
+| Recording | Add `MediaRecorder` in `sender.js` |
+| AI overlay | Add canvas overlay on `remoteVideo` in `viewer.js` |
+| BIM | Align Three.js scene to video in viewer (M6) |
+| Multiset VPS | Replace GPS in M2 with 6-DoF pose from Multiset SDK (M5) |

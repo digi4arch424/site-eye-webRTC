@@ -113,6 +113,13 @@ function callSender() {
     if (window.debugSetConn) debugSetConn("connected");
     showLiveBadge(true);
     updateConnectedAt();
+
+    // Force play — handle autoplay policy
+    video.play().catch((err) => {
+      log("Autoplay blocked — retrying with muted: " + err.message, "warn");
+      video.muted = true;
+      video.play().catch(e => log("Play failed: " + e.message, "error"));
+    });
   });
 
   call.on("close", () => {

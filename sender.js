@@ -1,52 +1,68 @@
 /**
- * sender.js — Camera sender logic (PeerJS)
- * Captures rear camera and streams to viewer via PeerJS free cloud signaling.
+ * sender.js — Camera sender (PeerJS)
  *
- * Key rule: camera must be ready BEFORE answering the call.
- * Incoming calls are queued until getUserMedia() resolves.
+ * Correct flow:
+ * 1. Page loads → register on PeerJS immediately with fixed ID
+ * 2. Viewer calls → store the call in pendingCall (do NOT answer yet)
+ * 3. User taps Start Stream → getUserMedia() resolves → localStream ready
+ * 4. Answer pendingCall with localStream attached — stream exists at answer time
+ *
+ * Key rule: call.answer(stream) must be called with stream already in hand.
  */
 
-let localStream  = null;
-let peer         = null;
-let pendingCall  = null;  // holds incoming call if camera not ready yet
-let backoff      = null;
-let retryTimer   = null;
+let localStream = null;
+let peer        = null;
+let pendingCall = null;   // viewer's call held until camera is ready
+let backoff     = null;
+let retryTimer  = null;
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
+// ─── Init — register on PeerJS immediately ────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   document.getElementById("startBtn").addEventListener("click", startStream);
   initPeer();
 });
 
-// ─── PeerJS Setup ─────────────────────────────────────────────────────────────
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
-
-  setStatus("status", "Connecting to PeerJS server…", "connecting");
-  log("Initialising peer:", CONFIG.SENDER_PEER_ID);
+  setStatus("status", "Connecting to PeerJS…", "connecting");
 
   peer = new Peer(CONFIG.SENDER_PEER_ID, { debug: 1 });
 
   peer.on("open", (id) => {
     backoff.reset();
-    log("Peer open, ID:", id);
+    log("Sender registered, ID:", id);
     document.getElementById("peerIdDisplay").textContent = id;
-    setStatus("status", "Connected — press ▶ Start Stream, then open viewer on desktop.", "connected");
+    setStatus("status", "Ready — press ▶ Start Stream, then open viewer on desktop.", "connected");
   });
 
+  // Viewer calls — hold it until camera is ready
   peer.on("call", (call) => {
-    log("Incoming call from viewer");
+    log("Viewer is calling…");
+
+    // Close any previous pending call
+    if (pendingCall) {
+      pendingCall.close();
+      pendingCall = null;
+    }
 
     if (localStream) {
       // Camera already running — answer immediately
-      log("Camera ready — answering call now");
+      log("Stream exists — answering now");
       answerCall(call);
     } else {
-      // Camera not started yet — queue the call
-      log("Camera not ready — queuing call until stream starts");
+      // Camera not started — hold the call
+      log("Stream not ready — holding call until camera starts");
       pendingCall = call;
-      setStatus("status", "Viewer connected — press ▶ Start Stream to begin.", "connected");
+
+      // Handle viewer hanging up before camera starts
+      call.on("close", () => {
+        log("Viewer hung up while waiting");
+        if (pendingCall === call) pendingCall = null;
+        setStatus("status", "Viewer disconnected. Press ▶ Start Stream then reopen viewer.", "error");
+      });
+
+      setStatus("status", "Viewer connected — press ▶ Start Stream to send video.", "connected");
     }
   });
 
@@ -59,9 +75,10 @@ function initPeer() {
   peer.on("error", (err) => {
     log("Peer error:", err.type, err.message);
     if (err.type === "unavailable-id") {
-      CONFIG.SENDER_PEER_ID = CONFIG.SENDER_PEER_ID + "-" + Math.random().toString(36).slice(2, 6);
-      log("ID conflict — retrying with:", CONFIG.SENDER_PEER_ID);
-      setTimeout(initPeer, 1000);
+      // Another sender session is still alive — wait and retry
+      log("ID in use — retrying in 3s");
+      setStatus("status", "ID conflict — retrying…", "connecting");
+      retryTimer = setTimeout(initPeer, 3000);
     } else if (err.type === "network" || err.type === "server-error") {
       scheduleReconnect();
     } else {
@@ -70,8 +87,10 @@ function initPeer() {
   });
 }
 
+// ─── Answer call with stream attached ────────────────────────────────────────
 function answerCall(call) {
-  call.answer(localStream);  // attach stream at answer time — the only correct moment
+  call.answer(localStream);  // stream is guaranteed to exist here
+  log("Call answered with live stream");
 
   call.on("close", () => {
     log("Viewer disconnected");
@@ -79,20 +98,10 @@ function answerCall(call) {
   });
 
   call.on("error", (err) => log("Call error:", err));
-  setStatus("status", "🟢 Streaming to viewer", "streaming");
+  setStatus("status", "🟢 Streaming live to viewer", "streaming");
 }
 
-function scheduleReconnect() {
-  clearTimeout(retryTimer);
-  const delay = backoff.next();
-  log(`Reconnecting in ${delay}ms`);
-  retryTimer = setTimeout(() => {
-    if (peer && !peer.destroyed) peer.reconnect();
-    else initPeer();
-  }, delay);
-}
-
-// ─── Camera ───────────────────────────────────────────────────────────────────
+// ─── Camera — start only when user taps button ────────────────────────────────
 async function startStream() {
   const btn = document.getElementById("startBtn");
   btn.disabled = true;
@@ -112,21 +121,29 @@ async function startStream() {
     return;
   }
 
-  // Show local preview
+  // Show preview
   const video = document.getElementById("localVideo");
   video.srcObject = localStream;
   video.classList.add("active");
   document.getElementById("placeholder").style.display = "none";
-
   btn.textContent = "Streaming…";
-  log("Local stream started");
+  log("Camera ready");
 
-  // If viewer already called before camera was ready — answer now
+  // Answer any call that arrived before camera was ready
   if (pendingCall) {
-    log("Answering queued call with live stream");
+    log("Answering held call now that stream is ready");
     answerCall(pendingCall);
     pendingCall = null;
   } else {
-    setStatus("status", "🟡 Camera ready — waiting for viewer to connect…", "streaming");
+    setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
   }
+}
+
+function scheduleReconnect() {
+  clearTimeout(retryTimer);
+  const delay = backoff.next();
+  retryTimer = setTimeout(() => {
+    if (peer && !peer.destroyed) peer.reconnect();
+    else initPeer();
+  }, delay);
 }

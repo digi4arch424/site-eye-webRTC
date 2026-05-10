@@ -1,28 +1,28 @@
 /**
- * viewer.js — Remote stream viewer logic (PeerJS)
- * Calls the sender peer and displays the incoming video stream.
+ * viewer.js — Remote stream viewer (PeerJS)
+ *
+ * Flow:
+ * 1. Page loads → connect to PeerJS with random ID
+ * 2. Call sender's fixed ID
+ * 3. If sender not ready yet → retry every 3s until sender answers
+ * 4. On stream event → display video
  */
 
 let peer       = null;
 let activeCall = null;
 let backoff    = null;
 let retryTimer = null;
-let callTimer  = null;
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   initPeer();
 });
 
-// ─── PeerJS Setup ─────────────────────────────────────────────────────────────
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
+  setStatus("status", "Connecting to PeerJS…", "connecting");
 
-  setStatus("status", "Connecting to PeerJS server…", "connecting");
-  log("Initialising viewer peer");
-
-  peer = new Peer({ debug: 1 });
+  peer = new Peer({ debug: 1 }); // random viewer ID
 
   peer.on("open", (id) => {
     backoff.reset();
@@ -32,7 +32,7 @@ function initPeer() {
   });
 
   peer.on("disconnected", () => {
-    log("Peer disconnected");
+    log("Peer disconnected — reconnecting…");
     setStatus("status", "Disconnected. Reconnecting…", "error");
     scheduleReconnect();
   });
@@ -40,10 +40,10 @@ function initPeer() {
   peer.on("error", (err) => {
     log("Peer error:", err.type, err.message);
     if (err.type === "peer-unavailable") {
-      // Sender not online yet — retry
+      // Sender not registered yet — keep retrying
       setStatus("status", "Camera not online yet. Retrying…", "connecting");
-      clearTimeout(callTimer);
-      callTimer = setTimeout(callSender, 3000);
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(callSender, 3000);
     } else if (err.type === "network" || err.type === "server-error") {
       scheduleReconnect();
     } else {
@@ -54,24 +54,25 @@ function initPeer() {
 
 function callSender() {
   if (!peer || peer.destroyed) return;
+
+  if (activeCall) { activeCall.close(); activeCall = null; }
+
   log("Calling sender:", CONFIG.SENDER_PEER_ID);
 
-  if (activeCall) {
-    activeCall.close();
-    activeCall = null;
-  }
+  // Viewer has no local stream — pass null (media-only receive)
+  const call = peer.call(CONFIG.SENDER_PEER_ID, null);
 
-  const call = peer.call(CONFIG.SENDER_PEER_ID, null); // no local stream needed
   if (!call) {
-    log("Call failed — retrying");
-    callTimer = setTimeout(callSender, 3000);
+    log("Call returned null — retrying");
+    retryTimer = setTimeout(callSender, 3000);
     return;
   }
 
   activeCall = call;
+  setStatus("status", "Calling camera — waiting for stream…", "connecting");
 
   call.on("stream", (remoteStream) => {
-    log("Remote stream received");
+    log("Remote stream received ✓");
     const video = document.getElementById("remoteVideo");
     video.srcObject = remoteStream;
     video.classList.add("active");
@@ -90,15 +91,13 @@ function callSender() {
     video.classList.remove("active");
     document.getElementById("placeholder").style.display = "";
     activeCall = null;
-    callTimer = setTimeout(callSender, 3000);
+    retryTimer = setTimeout(callSender, 3000);
   });
 
   call.on("error", (err) => {
     log("Call error:", err);
-    callTimer = setTimeout(callSender, 3000);
+    retryTimer = setTimeout(callSender, 3000);
   });
-
-  setStatus("status", "Calling camera — waiting for stream…", "connecting");
 }
 
 function scheduleReconnect() {

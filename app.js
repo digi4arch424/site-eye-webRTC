@@ -21,7 +21,7 @@ const CONFIG = {
   PEER_SERVER: {
     host:   "peerjs-signaling-server-denf.onrender.com",
     port:   443,
-    path:   "/construction-cam",
+    path:   "/",
     secure: true,
     debug:  1,
   },

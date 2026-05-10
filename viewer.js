@@ -19,17 +19,27 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Silent dummy stream — required by PeerJS 1.5.x to initiate a call
+// Uses canvas stream (no user gesture needed) as primary method
 function getDummyStream() {
   if (dummyStream) return dummyStream;
   try {
-    const ctx = new AudioContext();
-    const dest = ctx.createMediaStreamDestination();
-    dummyStream = dest.stream;
-  } catch (e) {
-    // Fallback: silent canvas stream
     const canvas = document.createElement("canvas");
-    canvas.width = 1; canvas.height = 1;
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    ctx.fillRect(0, 0, 1, 1);
     dummyStream = canvas.captureStream(1);
+    log("Dummy stream created via canvas");
+  } catch (e) {
+    log("Canvas stream failed, trying AudioContext: " + e.message, "warn");
+    try {
+      const actx = new AudioContext();
+      const dest = actx.createMediaStreamDestination();
+      dummyStream = dest.stream;
+      log("Dummy stream created via AudioContext");
+    } catch (e2) {
+      log("Both dummy stream methods failed: " + e2.message, "error");
+    }
   }
   return dummyStream;
 }
@@ -77,14 +87,18 @@ function callSender() {
 
   log("Calling sender:", CONFIG.SENDER_PEER_ID);
 
-  const call = peer.call(CONFIG.SENDER_PEER_ID, getDummyStream());
+  const dummy = getDummyStream();
+  log("Dummy stream tracks: " + (dummy ? dummy.getTracks().length : "null"));
+
+  const call = peer.call(CONFIG.SENDER_PEER_ID, dummy);
 
   if (!call) {
-    log("Call returned null — retrying");
+    log("Call returned null — retrying", "error");
     retryTimer = setTimeout(callSender, 3000);
     return;
   }
 
+  log("Call object created — waiting for stream…");
   activeCall = call;
   setStatus("status", "Calling camera — waiting for stream…", "connecting");
 

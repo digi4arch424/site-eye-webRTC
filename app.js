@@ -19,7 +19,7 @@ const CONFIG = {
   // Replace host with your Render URL after deploying peerjs-signaling-server.
   // e.g. "peerjs-signaling-server.onrender.com"
   PEER_SERVER: {
-    host:   "YOUR-NAME.onrender.com",  // ← update this after Render deploy
+    host:   "peerjs-signaling-server-denf.onrender.com",
     port:   443,
     path:   "/construction-cam",
     secure: true,

@@ -67,3 +67,9 @@ SENDER_PEER_ID: "your-unique-site-cam-id",
 - 🔜 M5 — Multiset WebXR VPS integration
 - 🔜 M6 — Site scan import + BIM overlay
 - 🔜 M7 — Full construction platform
+
+---
+
+## Live Site
+
+🔗 https://digi4arch424.github.io/site-eye-webRTC/

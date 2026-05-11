@@ -18,6 +18,30 @@ document.addEventListener("DOMContentLoaded", () => {
   initPeer();
 });
 
+function stopViewer() {
+  clearTimeout(retryTimer);
+  if (activeCall) { activeCall.close(); activeCall = null; }
+  if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
+
+  const video = document.getElementById("remoteVideo");
+  video.srcObject = null;
+  video.classList.remove("active");
+  document.getElementById("placeholder").style.display = "";
+
+  document.getElementById("connectBtn").style.display = "inline-block";
+  document.getElementById("disconnectBtn").style.display = "none";
+
+  showLiveBadge(false);
+  setStatus("status", "Disconnected.", "info");
+  log("Viewer stopped");
+}
+
+function startViewer() {
+  document.getElementById("connectBtn").style.display = "none";
+  document.getElementById("disconnectBtn").style.display = "inline-block";
+  initPeer();
+}
+
 // Silent dummy stream — required by PeerJS 1.5.x to initiate a call
 // Uses canvas stream (no user gesture needed) as primary method
 function getDummyStream() {
@@ -115,27 +139,26 @@ function callSender() {
     video.srcObject = remoteStream;
     video.classList.add("active");
     document.getElementById("placeholder").style.display = "none";
+    document.getElementById("connectBtn").style.display = "none";
+    document.getElementById("disconnectBtn").style.display = "inline-block";
     setStatus("status", "🟢 Live stream connected", "streaming");
     if (window.debugSetStream) debugSetStream("receiving ✓");
     if (window.debugSetConn) debugSetConn("connected");
     showLiveBadge(true);
     updateConnectedAt();
 
-    // Try autoplay — show manual play button if blocked
     video.play().then(() => {
       log("Video playing ✓");
       const btn = document.getElementById("play-btn");
       if (btn) btn.style.display = "none";
     }).catch((err) => {
-      log("Autoplay blocked — showing play button: " + err.message, "warn");
+      log("Autoplay blocked — retrying muted: " + err.message, "warn");
       video.muted = true;
       video.play().then(() => {
-        log("Video playing (muted) ✓");
+        log("Video playing muted ✓");
       }).catch(() => {
-        // Show manual play button as last resort
         const btn = document.getElementById("play-btn");
         if (btn) btn.style.display = "block";
-        log("Showing manual play button", "warn");
       });
     });
   });

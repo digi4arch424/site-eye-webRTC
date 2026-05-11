@@ -6,6 +6,54 @@
   <meta name="theme-color" content="#0a0c0e">
   <title>Construction Cam — Sender</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* Sender-specific: contain video only on sender */
+    #localVideo { object-fit: contain !important; background: #000; }
+
+    /* Settings panel */
+    .settings-panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .settings-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; cursor: pointer; user-select: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+    .settings-header:hover { background: rgba(245,158,11,0.04); }
+    .settings-panel.open .settings-header { border-bottom-color: var(--border); }
+    .settings-toggle { color: var(--accent); font-size: 11px; width: 14px; }
+    .settings-title {
+      font-family: var(--sans); font-size: 12px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);
+    }
+    .settings-body { display: none; padding: 14px; gap: 10px; flex-direction: column; }
+    .settings-panel.open .settings-body { display: flex; }
+    .settings-row { display: flex; flex-direction: column; gap: 4px; }
+    .settings-label {
+      font-family: var(--mono); font-size: 10px;
+      color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .settings-input {
+      background: var(--bg); border: 1px solid var(--border-hi);
+      border-radius: var(--radius); padding: 7px 10px;
+      font-family: var(--mono); font-size: 12px; color: var(--text);
+      outline: none; transition: border-color 0.15s;
+    }
+    .settings-input:focus { border-color: var(--accent); }
+    .settings-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+    /* Stop button */
+    .btn-danger {
+      border-color: #ef4444; color: #ef4444;
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: #ef4444; color: #fff; border-color: #ef4444;
+    }
+  </style>
 </head>
 <body>
   <div class="app">
@@ -48,6 +96,28 @@
       <!-- Controls -->
       <div class="controls">
         <button class="btn" id="startBtn">▶ Start Stream</button>
+        <button class="btn btn-danger" id="stopBtn" style="display:none">■ Stop Stream</button>
+      </div>
+
+      <!-- Settings -->
+      <div class="settings-panel" id="settingsPanel">
+        <div class="settings-header" onclick="toggleSettings()">
+          <span class="settings-toggle" id="settingsToggle">▶</span>
+          <span class="settings-title">Settings</span>
+        </div>
+        <div class="settings-body">
+          <div class="settings-row">
+            <label class="settings-label">Peer ID (Sender)</label>
+            <input class="settings-input" id="peerIdInput" type="text" placeholder="construction-cam-sender-001" />
+          </div>
+          <div class="settings-row">
+            <label class="settings-label">Site ID</label>
+            <input class="settings-input" id="siteIdInput" type="text" placeholder="site-alpha" />
+          </div>
+          <div class="settings-actions">
+            <button class="btn" onclick="applySettings()">Apply & Reconnect</button>
+          </div>
+        </div>
       </div>
 
       <!-- Info -->
@@ -66,18 +136,45 @@
         </div>
         <div class="info-item">
           <div class="info-label">Site ID</div>
-          <div class="info-value">site-alpha</div>
+          <div class="info-value" id="siteIdDisplay">—</div>
         </div>
       </div>
 
     </main>
   </div>
 
-  <script src="https://digi4arch424.github.io/vendor-js/peerjs.min.js"></script>
+  <script src="peerjs.min.js"></script>
   <script src="app.js"></script>
   <script src="ice.js"></script>
   <script src="debug.js"></script>
   <script src="diagnostics.js"></script>
   <script src="sender.js"></script>
+  <script>
+    // Populate settings inputs on load
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('peerIdInput').value = CONFIG.SENDER_PEER_ID;
+      document.getElementById('siteIdInput').value = CONFIG.SITE_ID;
+      document.getElementById('siteIdDisplay').textContent = CONFIG.SITE_ID;
+    });
+
+    function toggleSettings() {
+      const panel = document.getElementById('settingsPanel');
+      const toggle = document.getElementById('settingsToggle');
+      panel.classList.toggle('open');
+      toggle.textContent = panel.classList.contains('open') ? '▼' : '▶';
+    }
+
+    function applySettings() {
+      const peerId = document.getElementById('peerIdInput').value.trim();
+      const siteId = document.getElementById('siteIdInput').value.trim();
+      if (peerId) CONFIG.SENDER_PEER_ID = peerId;
+      if (siteId) {
+        CONFIG.SITE_ID = siteId;
+        document.getElementById('siteIdDisplay').textContent = siteId;
+      }
+      toggleSettings();
+      initPeer();
+    }
+  </script>
 </body>
 </html>

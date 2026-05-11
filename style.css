@@ -136,7 +136,8 @@ video {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #000;
   display: none;
 }
 
@@ -322,6 +323,21 @@ video.active {
 .corner-mark--tr { top: 6px;    right: 6px;   border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
 .corner-mark--bl { bottom: 6px; left: 6px;    border-bottom: 2px solid var(--accent); border-left:  2px solid var(--accent); }
 .corner-mark--br { bottom: 6px; right: 6px;   border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+/* ─── Home Link ──────────────────────────────────────────────────────────── */
+.home-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-left: auto;
+  transition: color 0.15s;
+}
+
+.home-link:hover {
+  color: var(--accent);
+}
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {

@@ -18,8 +18,31 @@ let retryTimer  = null;
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   document.getElementById("startBtn").addEventListener("click", startStream);
+  document.getElementById("stopBtn").addEventListener("click", stopStream);
   initPeer();
 });
+
+function stopStream() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (pendingCall) { pendingCall.close(); pendingCall = null; }
+
+  const video = document.getElementById("localVideo");
+  video.srcObject = null;
+  video.classList.remove("active");
+  document.getElementById("placeholder").style.display = "";
+
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn  = document.getElementById("stopBtn");
+  startBtn.textContent = "▶ Start Stream";
+  startBtn.disabled = false;
+  stopBtn.style.display = "none";
+
+  setStatus("status", "Stream stopped — press ▶ Start Stream to restart.", "info");
+  log("Stream stopped");
+}
 
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
@@ -115,6 +138,7 @@ async function startStream() {
   video.classList.add("active");
   document.getElementById("placeholder").style.display = "none";
   btn.textContent = "Streaming…";
+  document.getElementById("stopBtn").style.display = "inline-block";
   log("Camera ready");
 
   if (pendingCall) {

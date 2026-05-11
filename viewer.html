@@ -62,6 +62,14 @@
           </div>
           <video id="remoteVideo" autoplay muted playsinline></video>
           <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+          <button id="play-btn" onclick="manualPlay()" style="
+            display:none; position:absolute; top:50%; left:50%;
+            transform:translate(-50%,-50%); z-index:10;
+            background:rgba(245,158,11,0.15); border:1px solid #f59e0b;
+            color:#f59e0b; font-family:'Share Tech Mono',monospace;
+            font-size:14px; padding:12px 24px; border-radius:3px;
+            cursor:pointer; letter-spacing:0.1em;
+          ">▶ TAP TO PLAY</button>
         </div>
       </div>
 
@@ -99,6 +107,14 @@
       const panel = document.querySelector('.video-panel');
       if (!document.fullscreenElement) panel.requestFullscreen().catch(console.error);
       else document.exitFullscreen();
+    }
+
+    function manualPlay() {
+      const video = document.getElementById('remoteVideo');
+      const btn = document.getElementById('play-btn');
+      video.play().then(() => {
+        if (btn) btn.style.display = 'none';
+      }).catch(e => console.error('Manual play failed:', e));
     }
   </script>
 </body>

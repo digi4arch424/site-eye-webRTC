@@ -114,11 +114,22 @@ function callSender() {
     showLiveBadge(true);
     updateConnectedAt();
 
-    // Force play — handle autoplay policy
-    video.play().catch((err) => {
-      log("Autoplay blocked — retrying with muted: " + err.message, "warn");
+    // Try autoplay — show manual play button if blocked
+    video.play().then(() => {
+      log("Video playing ✓");
+      const btn = document.getElementById("play-btn");
+      if (btn) btn.style.display = "none";
+    }).catch((err) => {
+      log("Autoplay blocked — showing play button: " + err.message, "warn");
       video.muted = true;
-      video.play().catch(e => log("Play failed: " + e.message, "error"));
+      video.play().then(() => {
+        log("Video playing (muted) ✓");
+      }).catch(() => {
+        // Show manual play button as last resort
+        const btn = document.getElementById("play-btn");
+        if (btn) btn.style.display = "block";
+        log("Showing manual play button", "warn");
+      });
     });
   });
 

@@ -100,6 +100,13 @@ function callSender() {
 
   log("Call object created — waiting for stream…");
   activeCall = call;
+  window._activeCall = call;
+  window._peer = peer;
+
+  // Monitor ICE and connection states via debug module
+  if (window.debugMonitorCall) debugMonitorCall(call);
+  window._activeCall = call;
+  window._peer = peer;
   setStatus("status", "Calling camera — waiting for stream…", "connecting");
 
   call.on("stream", (remoteStream) => {

@@ -385,5 +385,43 @@
   // Usage: window.debugLog("AI model loaded", "ai")
   window.debugLog = writeEntry;
 
+  // ── ICE / PeerConnection monitor ──────────────────────────────────────────────
+  // Call this from sender.js or viewer.js after a call is established:
+  // window.debugMonitorCall(call)
+  window.debugMonitorCall = function(call) {
+    if (!call || !call.peerConnection) return;
+    const pc = call.peerConnection;
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      const type = state === "failed" || state === "disconnected" ? "error"
+                 : state === "connected" || state === "completed"  ? "success"
+                 : "ice";
+      writeEntry("ICE connection state: " + state, type);
+      if (window.debugSetIce) debugSetIce(state);
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      const type = state === "failed" ? "error"
+                 : state === "connected" ? "success"
+                 : "network";
+      writeEntry("Connection state: " + state, type);
+      if (window.debugSetConn) debugSetConn(state);
+    };
+
+    pc.onicegatheringstatechange = () => {
+      writeEntry("ICE gathering state: " + pc.iceGatheringState, "ice");
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        writeEntry("ICE candidate: " + e.candidate.type + " / " + e.candidate.protocol, "ice");
+      } else {
+        writeEntry("ICE gathering complete", "ice");
+      }
+    };
+  };
+
   writeEntry("Debug panel ready — v2", "success");
 })();

@@ -67,5 +67,5 @@ const ICE_CONFIG = {
   // ICE transport policy:
   // "all"   — try P2P first, fall back to TURN (default, recommended)
   // "relay" — force TURN only (use for debugging NAT issues)
-  iceTransportPolicy: "relay",
+  iceTransportPolicy: "all",
 };

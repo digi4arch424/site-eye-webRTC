@@ -1,12 +1,13 @@
 /**
  * sender.js — Camera sender (PeerJS)
- * Uses ICE_CONFIG from ice.js
+ * Networking managed entirely by Module A/B/C.
  *
  * Flow:
- * 1. Page loads → register on PeerJS with fixed ID + ICE_CONFIG
- * 2. Viewer calls → store in pendingCall (do NOT answer yet)
- * 3. User taps Start Stream → getUserMedia() resolves → localStream ready
- * 4. call.answer(localStream) — stream guaranteed to exist at answer time
+ * 1. Page loads → ModuleA.init("sender") → register on PeerJS
+ * 2. Viewer calls → store in pendingCall
+ * 3. User taps Start Stream → getUserMedia() resolves
+ * 4. Answer call with stream → ModuleA.onCallEstablished(pc)
+ * 5. Module A monitors ICE → B tries local, C tries relay if needed
  */
 
 let localStream = null;
@@ -19,43 +20,22 @@ document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   document.getElementById("startBtn").addEventListener("click", startStream);
   document.getElementById("stopBtn").addEventListener("click", stopStream);
+  initNetworkModules("sender");
   initPeer();
 });
 
-function stopStream() {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  if (pendingCall) { pendingCall.close(); pendingCall = null; }
-
-  const video = document.getElementById("localVideo");
-  video.srcObject = null;
-  video.classList.remove("active");
-  document.getElementById("placeholder").style.display = "";
-
-  const startBtn = document.getElementById("startBtn");
-  const stopBtn  = document.getElementById("stopBtn");
-  startBtn.textContent = "▶ Start Stream";
-  startBtn.disabled = false;
-  stopBtn.style.display = "none";
-
-  setStatus("status", "Stream stopped — press ▶ Start Stream to restart.", "info");
-  log("Stream stopped");
-}
-
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
-  setStatus("status", "Connecting to PeerJS…", "connecting");
+  setStatus("status", "Connecting to signaling server…", "connecting");
 
   peer = new Peer(CONFIG.SENDER_PEER_ID, {
     ...CONFIG.PEER_SERVER,
-    config: ICE_CONFIG,
+    config: ModuleA.getIceConfig(),
   });
 
   peer.on("open", (id) => {
     backoff.reset();
-    log("Sender registered, ID:", id);
+    log("Sender registered, ID: " + id);
     document.getElementById("peerIdDisplay").textContent = id;
     if (window.debugSetPeer) debugSetPeer(id.slice(0, 8) + "…");
     setStatus("status", "Ready — press ▶ Start Stream, then open viewer on desktop.", "connected");
@@ -80,13 +60,13 @@ function initPeer() {
   });
 
   peer.on("disconnected", () => {
-    log("Disconnected — reconnecting…");
+    log("Peer disconnected — reconnecting…");
     setStatus("status", "Disconnected. Reconnecting…", "error");
     scheduleReconnect();
   });
 
   peer.on("error", (err) => {
-    log("Peer error:", err.type, err.message);
+    log("Peer error: " + err.type + " " + err.message);
     if (err.type === "unavailable-id") {
       log("ID in use — retrying in 3s");
       setStatus("status", "ID conflict — retrying…", "connecting");
@@ -102,16 +82,19 @@ function initPeer() {
 function answerCall(call) {
   call.answer(localStream);
   log("Call answered with live stream");
-  if (window.debugSetStream) debugSetStream("live ✓");
-  if (window.debugSetConn) debugSetConn("streaming");
+
+  // Hand off to Module A — begins B→C state machine
+  ModuleA.onCallEstablished(call.peerConnection);
+
   setStatus("status", "🟢 Streaming live to viewer", "streaming");
+  if (window.debugSetStream) debugSetStream("live ✓");
 
   call.on("close", () => {
     log("Viewer disconnected");
-    if (window.debugSetConn) debugSetConn("closed");
+    ModuleA.disconnect();
     setStatus("status", "🟡 Camera active — viewer disconnected. Waiting…", "streaming");
   });
-  call.on("error", (err) => log("Call error:", err));
+  call.on("error", (err) => log("Call error: " + err));
 }
 
 async function startStream() {
@@ -123,7 +106,7 @@ async function startStream() {
     localStream = await navigator.mediaDevices.getUserMedia(CONFIG.CAMERA_CONSTRAINTS);
   } catch (err) {
     btn.disabled = false;
-    log("Camera error:", err);
+    log("Camera error: " + err);
     const msg = err.name === "NotAllowedError"
       ? "Camera permission denied. Allow access and retry."
       : err.name === "NotFoundError"
@@ -148,6 +131,29 @@ async function startStream() {
   } else {
     setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
   }
+}
+
+function stopStream() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (pendingCall) { pendingCall.close(); pendingCall = null; }
+  ModuleA.disconnect();
+
+  const video = document.getElementById("localVideo");
+  video.srcObject = null;
+  video.classList.remove("active");
+  document.getElementById("placeholder").style.display = "";
+
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn  = document.getElementById("stopBtn");
+  startBtn.textContent = "▶ Start Stream";
+  startBtn.disabled = false;
+  stopBtn.style.display = "none";
+
+  setStatus("status", "Stream stopped — press ▶ Start Stream to restart.", "info");
+  log("Stream stopped");
 }
 
 function scheduleReconnect() {

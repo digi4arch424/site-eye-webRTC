@@ -1,10 +1,12 @@
 /**
  * viewer.js — Remote stream viewer (PeerJS)
- * Uses ICE_CONFIG from ice.js
+ * Networking managed entirely by Module A/B/C.
  *
- * PeerJS 1.5.x requires a local stream when calling — even receive-only.
- * A silent dummy stream satisfies the API without sending any data.
- * Only the sender's remote stream is displayed.
+ * Flow:
+ * 1. Page loads → ModuleA.init("viewer") → connect to PeerJS
+ * 2. Call sender → ModuleA.onCallEstablished(pc)
+ * 3. Module A monitors ICE → B tries local, C tries relay if needed
+ * 4. Stream received → display video
  */
 
 let peer        = null;
@@ -15,51 +17,24 @@ let dummyStream = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
+  initNetworkModules("viewer");
   initPeer();
 });
 
-function stopViewer() {
-  clearTimeout(retryTimer);
-  if (activeCall) { activeCall.close(); activeCall = null; }
-  if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
-
-  const video = document.getElementById("remoteVideo");
-  video.srcObject = null;
-  video.classList.remove("active");
-  document.getElementById("placeholder").style.display = "";
-
-  document.getElementById("connectBtn").style.display = "inline-block";
-  document.getElementById("disconnectBtn").style.display = "none";
-
-  showLiveBadge(false);
-  setStatus("status", "Disconnected.", "info");
-  log("Viewer stopped");
-}
-
-function startViewer() {
-  document.getElementById("connectBtn").style.display = "none";
-  document.getElementById("disconnectBtn").style.display = "inline-block";
-  initPeer();
-}
-
-// Silent dummy stream — required by PeerJS 1.5.x to initiate a call
-// Uses canvas stream (no user gesture needed) as primary method
+// Silent dummy stream — required by PeerJS 1.5.x
 function getDummyStream() {
   if (dummyStream) return dummyStream;
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext("2d");
-    ctx.fillRect(0, 0, 1, 1);
+    canvas.width = 1; canvas.height = 1;
+    canvas.getContext("2d").fillRect(0, 0, 1, 1);
     dummyStream = canvas.captureStream(1);
     log("Dummy stream created via canvas");
   } catch (e) {
     log("Canvas stream failed, trying AudioContext: " + e.message, "warn");
     try {
       const actx = new AudioContext();
-      const dest = actx.createMediaStreamDestination();
-      dummyStream = dest.stream;
+      dummyStream = actx.createMediaStreamDestination().stream;
       log("Dummy stream created via AudioContext");
     } catch (e2) {
       log("Both dummy stream methods failed: " + e2.message, "error");
@@ -70,29 +45,29 @@ function getDummyStream() {
 
 function initPeer() {
   if (peer && !peer.destroyed) peer.destroy();
-  setStatus("status", "Connecting to PeerJS…", "connecting");
+  setStatus("status", "Connecting to signaling server…", "connecting");
 
   peer = new Peer({
     ...CONFIG.PEER_SERVER,
-    config: ICE_CONFIG,
+    config: ModuleA.getIceConfig(),
   });
 
   peer.on("open", (id) => {
     backoff.reset();
-    log("Viewer peer open, ID:", id);
+    log("Viewer peer open, ID: " + id);
     if (window.debugSetPeer) debugSetPeer(id.slice(0, 8) + "…");
     setStatus("status", "Connected — calling camera…", "connecting");
     callSender();
   });
 
   peer.on("disconnected", () => {
-    log("Disconnected — reconnecting…");
+    log("Peer disconnected — reconnecting…");
     setStatus("status", "Disconnected. Reconnecting…", "error");
     scheduleReconnect();
   });
 
   peer.on("error", (err) => {
-    log("Peer error:", err.type, err.message);
+    log("Peer error: " + err.type + " " + err.message);
     if (err.type === "peer-unavailable") {
       setStatus("status", "Camera not online yet. Retrying…", "connecting");
       clearTimeout(retryTimer);
@@ -109,7 +84,7 @@ function callSender() {
   if (!peer || peer.destroyed) return;
   if (activeCall) { activeCall.close(); activeCall = null; }
 
-  log("Calling sender:", CONFIG.SENDER_PEER_ID);
+  log("Calling sender: " + CONFIG.SENDER_PEER_ID);
 
   const dummy = getDummyStream();
   log("Dummy stream tracks: " + (dummy ? dummy.getTracks().length : "null"));
@@ -127,10 +102,9 @@ function callSender() {
   window._activeCall = call;
   window._peer = peer;
 
-  // Monitor ICE and connection states via debug module
-  if (window.debugMonitorCall) debugMonitorCall(call);
-  window._activeCall = call;
-  window._peer = peer;
+  // Hand off to Module A — begins B→C state machine
+  ModuleA.onCallEstablished(call.peerConnection);
+
   setStatus("status", "Calling camera — waiting for stream…", "connecting");
 
   call.on("stream", (remoteStream) => {
@@ -143,9 +117,9 @@ function callSender() {
     document.getElementById("disconnectBtn").style.display = "inline-block";
     setStatus("status", "🟢 Live stream connected", "streaming");
     if (window.debugSetStream) debugSetStream("receiving ✓");
-    if (window.debugSetConn) debugSetConn("connected");
     showLiveBadge(true);
     updateConnectedAt();
+    ModuleA.onStreamReceived();
 
     video.play().then(() => {
       log("Video playing ✓");
@@ -165,6 +139,7 @@ function callSender() {
 
   call.on("close", () => {
     log("Sender disconnected");
+    ModuleA.disconnect();
     setStatus("status", "Camera disconnected. Reconnecting…", "error");
     showLiveBadge(false);
     const video = document.getElementById("remoteVideo");
@@ -176,9 +151,33 @@ function callSender() {
   });
 
   call.on("error", (err) => {
-    log("Call error:", err);
+    log("Call error: " + err);
     retryTimer = setTimeout(callSender, 3000);
   });
+}
+
+function stopViewer() {
+  clearTimeout(retryTimer);
+  if (activeCall) { activeCall.close(); activeCall = null; }
+  if (peer && !peer.destroyed) { peer.destroy(); peer = null; }
+  ModuleA.disconnect();
+
+  const video = document.getElementById("remoteVideo");
+  video.srcObject = null;
+  video.classList.remove("active");
+  document.getElementById("placeholder").style.display = "";
+  document.getElementById("connectBtn").style.display = "inline-block";
+  document.getElementById("disconnectBtn").style.display = "none";
+
+  showLiveBadge(false);
+  setStatus("status", "Disconnected.", "info");
+  log("Viewer stopped");
+}
+
+function startViewer() {
+  document.getElementById("connectBtn").style.display = "none";
+  document.getElementById("disconnectBtn").style.display = "inline-block";
+  initPeer();
 }
 
 function scheduleReconnect() {

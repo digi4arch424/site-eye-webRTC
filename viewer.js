@@ -18,7 +18,7 @@ let dummyStream = null;
 document.addEventListener("DOMContentLoaded", () => {
   backoff = createBackoff();
   initNetworkModules("viewer");
-  initPeer();
+  // Does not auto-connect — user presses ▶ Connect
 });
 
 // Silent dummy stream — required by PeerJS 1.5.x

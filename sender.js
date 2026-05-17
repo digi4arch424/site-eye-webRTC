@@ -86,6 +86,9 @@ function answerCall(call) {
   // Hand off to Module A — begins B→C state machine
   ModuleA.onCallEstablished(call.peerConnection);
 
+  // Confirm stream is flowing on sender side
+  ModuleA.onStreamSent();
+
   setStatus("status", "🟢 Streaming live to viewer", "streaming");
   if (window.debugSetStream) debugSetStream("live ✓");
 

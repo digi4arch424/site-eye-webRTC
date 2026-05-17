@@ -102,6 +102,21 @@ function callSender() {
   window._activeCall = call;
   window._peer = peer;
 
+  // Explicitly set video transceiver to receive-only
+  // Fixes muted: true on incoming video track
+  try {
+    const pc = call.peerConnection;
+    const transceivers = pc.getTransceivers();
+    transceivers.forEach(t => {
+      if (t.receiver && t.receiver.track && t.receiver.track.kind === "video") {
+        t.direction = "recvonly";
+        log("Set video transceiver to recvonly", "ice");
+      }
+    });
+  } catch (e) {
+    log("Transceiver setup: " + e.message, "warn");
+  }
+
   // Hand off to Module A — begins B→C state machine
   ModuleA.onCallEstablished(call.peerConnection);
 
@@ -109,6 +124,16 @@ function callSender() {
 
   call.on("stream", (remoteStream) => {
     log("Remote stream received ✓");
+
+    // Attempt to unmute incoming tracks
+    remoteStream.getTracks().forEach(track => {
+      log("Track: " + track.kind + " muted=" + track.muted + " readyState=" + track.readyState, "ice");
+      track.onunmute = () => {
+        log("Track unmuted: " + track.kind, "success");
+        const video = document.getElementById("remoteVideo");
+        if (video) video.play().catch(() => {});
+      };
+    });
     const video = document.getElementById("remoteVideo");
     video.srcObject = remoteStream;
     video.classList.add("active");

@@ -1,105 +1,134 @@
 /**
- * sender.js — Camera sender (PeerJS)
- * Networking managed entirely by Module A/B/C.
+ * sender.js — Camera sender (Raw WebRTC API)
+ * No PeerJS. Uses SignalingClient + RTCPeerConnection directly.
  *
  * Flow:
- * 1. Page loads → ModuleA.init("sender") → register on PeerJS
- * 2. Viewer calls → store in pendingCall
- * 3. User taps Start Stream → getUserMedia() resolves
- * 4. Answer call with stream → ModuleA.onCallEstablished(pc)
- * 5. Module A monitors ICE → B tries local, C tries relay if needed
+ * 1. Page loads → SignalingClient connects and registers as "sender"
+ * 2. Viewer connects → server sends "viewer-ready"
+ * 3. User taps Start Stream → getUserMedia() → localStream ready
+ * 4. createOffer() → send SDP offer via SignalingClient
+ * 5. Receive SDP answer → setRemoteDescription
+ * 6. Exchange ICE candidates
+ * 7. WebRTC P2P stream established
  */
 
 let localStream = null;
-let peer        = null;
-let pendingCall = null;
-let backoff     = null;
-let retryTimer  = null;
+let pc          = null;  // RTCPeerConnection
+let streaming   = false;
+let viewerReady = false;
 
 document.addEventListener("DOMContentLoaded", () => {
-  backoff = createBackoff();
   document.getElementById("startBtn").addEventListener("click", startStream);
   document.getElementById("stopBtn").addEventListener("click", stopStream);
+
   initNetworkModules("sender");
-  initPeer();
+  initSignaling();
 });
 
-function initPeer() {
-  if (peer && !peer.destroyed) peer.destroy();
-  setStatus("status", "Connecting to signaling server…", "connecting");
+// ── Signaling ─────────────────────────────────────────────────────────────────
+function initSignaling() {
+  SignalingClient.configure({
+    url:       CONFIG.SIGNALING_URL,
+    sessionId: CONFIG.SESSION_ID,
+    role:      "sender",
 
-  peer = new Peer(CONFIG.SENDER_PEER_ID, {
-    ...CONFIG.PEER_SERVER,
-    config: ModuleA.getIceConfig(),
+    onRegistered: () => {
+      log("Sender registered on signaling server ✓");
+      document.getElementById("peerIdDisplay").textContent = CONFIG.SESSION_ID;
+      if (window.debugSetPeer) debugSetPeer(CONFIG.SESSION_ID);
+      setStatus("status", "Ready — press ▶ Start Stream, then open viewer.", "connected");
+    },
+
+    onViewerReady: () => {
+      log("Viewer connected — initiating offer");
+      viewerReady = true;
+      if (streaming) createOffer();
+      else setStatus("status", "Viewer connected — press ▶ Start Stream to send video.", "connected");
+    },
+
+    onViewerLeft: () => {
+      log("Viewer disconnected");
+      viewerReady = false;
+      setStatus("status", "🟡 Streaming — viewer disconnected. Waiting…", "streaming");
+    },
+
+    onAnswer: async (sdp) => {
+      log("Received SDP answer");
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        log("Remote description set ✓");
+      } catch (e) {
+        log("setRemoteDescription failed: " + e.message, "error");
+      }
+    },
+
+    onIceCandidate: async (candidate) => {
+      if (!pc || !candidate) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        log("addIceCandidate failed: " + e.message, "warn");
+      }
+    },
+
+    onDisconnected: () => {
+      setStatus("status", "Signaling disconnected. Reconnecting…", "error");
+    },
+
+    onError: (msg) => {
+      log("Signaling error: " + msg, "error");
+    },
   });
 
-  peer.on("open", (id) => {
-    backoff.reset();
-    log("Sender registered, ID: " + id);
-    document.getElementById("peerIdDisplay").textContent = id;
-    if (window.debugSetPeer) debugSetPeer(id.slice(0, 8) + "…");
-    setStatus("status", "Ready — press ▶ Start Stream, then open viewer on desktop.", "connected");
-  });
-
-  peer.on("call", (call) => {
-    log("Viewer is calling…");
-    if (pendingCall) { pendingCall.close(); pendingCall = null; }
-
-    if (localStream) {
-      log("Stream exists — answering immediately");
-      answerCall(call);
-    } else {
-      log("Stream not ready — holding call");
-      pendingCall = call;
-      call.on("close", () => {
-        if (pendingCall === call) pendingCall = null;
-        setStatus("status", "Viewer disconnected. Start stream then reopen viewer.", "error");
-      });
-      setStatus("status", "Viewer connected — press ▶ Start Stream to send video.", "connected");
-    }
-  });
-
-  peer.on("disconnected", () => {
-    log("Peer disconnected — reconnecting…");
-    setStatus("status", "Disconnected. Reconnecting…", "error");
-    scheduleReconnect();
-  });
-
-  peer.on("error", (err) => {
-    log("Peer error: " + err.type + " " + err.message);
-    if (err.type === "unavailable-id") {
-      log("ID in use — retrying in 3s");
-      setStatus("status", "ID conflict — retrying…", "connecting");
-      retryTimer = setTimeout(initPeer, 3000);
-    } else if (err.type === "network" || err.type === "server-error") {
-      scheduleReconnect();
-    } else {
-      setStatus("status", `Error: ${err.type}`, "error");
-    }
-  });
+  SignalingClient.connect();
 }
 
-function answerCall(call) {
-  call.answer(localStream);
-  log("Call answered with live stream");
+// ── WebRTC ────────────────────────────────────────────────────────────────────
+function createPeerConnection() {
+  if (pc) { pc.close(); pc = null; }
 
-  // Hand off to Module A — begins B→C state machine
-  ModuleA.onCallEstablished(call.peerConnection);
-
-  // Confirm stream is flowing on sender side
+  pc = new RTCPeerConnection(ModuleA.getIceConfig());
+  ModuleA.onCallEstablished(pc);
   ModuleA.onStreamSent();
 
-  setStatus("status", "🟢 Streaming live to viewer", "streaming");
-  if (window.debugSetStream) debugSetStream("live ✓");
+  // Add local tracks
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-  call.on("close", () => {
-    log("Viewer disconnected");
-    ModuleA.disconnect();
-    setStatus("status", "🟡 Camera active — viewer disconnected. Waiting…", "streaming");
-  });
-  call.on("error", (err) => log("Call error: " + err));
+  // Send ICE candidates to viewer via signaling
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) SignalingClient.sendIceCandidate(candidate.toJSON());
+  };
+
+  pc.onconnectionstatechange = () => {
+    log("Connection state: " + pc.connectionState);
+    if (pc.connectionState === "connected") {
+      setStatus("status", "🟢 Streaming live to viewer", "streaming");
+      if (window.debugSetStream) debugSetStream("live ✓");
+    } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+      setStatus("status", "🟡 Connection lost — waiting for viewer…", "error");
+    }
+  };
+
+  return pc;
 }
 
+async function createOffer() {
+  if (!localStream) return;
+  createPeerConnection();
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    SignalingClient.sendOffer(offer);
+    log("SDP offer sent");
+    setStatus("status", "Offer sent — waiting for viewer to answer…", "connecting");
+  } catch (e) {
+    log("createOffer failed: " + e.message, "error");
+  }
+}
+
+// ── Camera ────────────────────────────────────────────────────────────────────
 async function startStream() {
   const btn = document.getElementById("startBtn");
   btn.disabled = true;
@@ -109,13 +138,13 @@ async function startStream() {
     localStream = await navigator.mediaDevices.getUserMedia(CONFIG.CAMERA_CONSTRAINTS);
   } catch (err) {
     btn.disabled = false;
-    log("Camera error: " + err);
     const msg = err.name === "NotAllowedError"
       ? "Camera permission denied. Allow access and retry."
       : err.name === "NotFoundError"
       ? "No camera found on this device."
-      : `Camera error: ${err.message}`;
+      : "Camera error: " + err.message;
     setStatus("status", msg, "error");
+    log("Camera error: " + err, "error");
     return;
   }
 
@@ -125,12 +154,11 @@ async function startStream() {
   document.getElementById("placeholder").style.display = "none";
   btn.textContent = "Streaming…";
   document.getElementById("stopBtn").style.display = "inline-block";
+  streaming = true;
   log("Camera ready");
 
-  if (pendingCall) {
-    log("Answering held call now that stream is ready");
-    answerCall(pendingCall);
-    pendingCall = null;
+  if (viewerReady) {
+    await createOffer();
   } else {
     setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
   }
@@ -141,8 +169,10 @@ function stopStream() {
     localStream.getTracks().forEach(t => t.stop());
     localStream = null;
   }
-  if (pendingCall) { pendingCall.close(); pendingCall = null; }
+  if (pc) { pc.close(); pc = null; }
   ModuleA.disconnect();
+  streaming   = false;
+  viewerReady = false;
 
   const video = document.getElementById("localVideo");
   video.srcObject = null;
@@ -150,20 +180,10 @@ function stopStream() {
   document.getElementById("placeholder").style.display = "";
 
   const startBtn = document.getElementById("startBtn");
-  const stopBtn  = document.getElementById("stopBtn");
   startBtn.textContent = "▶ Start Stream";
   startBtn.disabled = false;
-  stopBtn.style.display = "none";
+  document.getElementById("stopBtn").style.display = "none";
 
   setStatus("status", "Stream stopped — press ▶ Start Stream to restart.", "info");
   log("Stream stopped");
-}
-
-function scheduleReconnect() {
-  clearTimeout(retryTimer);
-  const delay = backoff.next();
-  retryTimer = setTimeout(() => {
-    if (peer && !peer.destroyed) peer.reconnect();
-    else initPeer();
-  }, delay);
 }

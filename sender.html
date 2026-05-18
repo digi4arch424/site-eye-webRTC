@@ -147,18 +147,18 @@
     </main>
   </div>
 
-  <script src="https://digi4arch424.github.io/vendor-js/peerjs.min.js"></script>
   <script src="app.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-b.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-c.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-a.js"></script>
+  <script src="https://digi4arch424.github.io/webrtc-network-modules/signaling.js"></script>
   <script src="debug.js"></script>
   <script src="diagnostics.js"></script>
   <script src="sender.js"></script>
   <script>
     // Populate settings inputs on load
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('peerIdInput').value = CONFIG.SENDER_PEER_ID;
+      document.getElementById('peerIdInput').value = CONFIG.SESSION_ID;
       document.getElementById('siteIdInput').value = CONFIG.SITE_ID;
       document.getElementById('siteIdDisplay').textContent = CONFIG.SITE_ID;
     });
@@ -171,15 +171,16 @@
     }
 
     function applySettings() {
-      const peerId = document.getElementById('peerIdInput').value.trim();
-      const siteId = document.getElementById('siteIdInput').value.trim();
-      if (peerId) CONFIG.SENDER_PEER_ID = peerId;
+      const sessionId = document.getElementById('peerIdInput').value.trim();
+      const siteId    = document.getElementById('siteIdInput').value.trim();
+      if (sessionId) CONFIG.SESSION_ID = sessionId;
       if (siteId) {
         CONFIG.SITE_ID = siteId;
         document.getElementById('siteIdDisplay').textContent = siteId;
       }
       toggleSettings();
-      initPeer();
+      SignalingClient.disconnect();
+      initSignaling();
     }
   </script>
 </body>

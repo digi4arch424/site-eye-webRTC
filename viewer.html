@@ -167,17 +167,17 @@
     </main>
   </div>
 
-  <script src="https://digi4arch424.github.io/vendor-js/peerjs.min.js"></script>
   <script src="app.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-b.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-c.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-a.js"></script>
+  <script src="https://digi4arch424.github.io/webrtc-network-modules/signaling.js"></script>
   <script src="debug.js"></script>
   <script src="diagnostics.js"></script>
   <script src="viewer.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('senderPeerIdInput').value = CONFIG.SENDER_PEER_ID;
+      document.getElementById('senderPeerIdInput').value = CONFIG.SESSION_ID;
       document.getElementById('siteIdInput').value = CONFIG.SITE_ID;
       document.getElementById('infoCameraId').textContent = CONFIG.CAMERA_ID;
       document.getElementById('infoSiteId').textContent = CONFIG.SITE_ID;
@@ -192,9 +192,9 @@
     }
 
     function applySettings() {
-      const peerId = document.getElementById('senderPeerIdInput').value.trim();
-      const siteId = document.getElementById('siteIdInput').value.trim();
-      if (peerId) CONFIG.SENDER_PEER_ID = peerId;
+      const sessionId = document.getElementById('senderPeerIdInput').value.trim();
+      const siteId    = document.getElementById('siteIdInput').value.trim();
+      if (sessionId) CONFIG.SESSION_ID = sessionId;
       if (siteId) {
         CONFIG.SITE_ID = siteId;
         document.getElementById('infoSiteId').textContent = siteId;
@@ -202,7 +202,6 @@
       }
       toggleSettings();
       stopViewer();
-      initPeer();
     }
 
     function toggleFullscreen() {

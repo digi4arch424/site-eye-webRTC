@@ -1,26 +1,24 @@
 /**
  * sender.js — Camera sender (Raw WebRTC API)
- * No PeerJS. Uses SignalingClient + RTCPeerConnection directly.
+ * Depends on: config.js, utils.js, app.js, module-a.js, signaling.js
  *
  * Flow:
- * 1. Page loads → SignalingClient connects and registers as "sender"
+ * 1. DOMContentLoaded → initNetworkModules + initSignaling
  * 2. Viewer connects → server sends "viewer-ready"
  * 3. User taps Start Stream → getUserMedia() → localStream ready
- * 4. createOffer() → send SDP offer via SignalingClient
+ * 4. createOffer() → SDP offer via SignalingClient
  * 5. Receive SDP answer → setRemoteDescription
- * 6. Exchange ICE candidates
- * 7. WebRTC P2P stream established
+ * 6. Exchange ICE candidates → P2P stream established
  */
 
 let localStream = null;
-let pc          = null;  // RTCPeerConnection
+let pc          = null;
 let streaming   = false;
 let viewerReady = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("startBtn").addEventListener("click", startStream);
   document.getElementById("stopBtn").addEventListener("click", stopStream);
-
   initNetworkModules("sender");
   initSignaling();
 });
@@ -33,14 +31,14 @@ function initSignaling() {
     role:      "sender",
 
     onRegistered: () => {
-      log("Sender registered on signaling server ✓");
-      document.getElementById("peerIdDisplay").textContent = CONFIG.SESSION_ID;
+      log("Sender registered ✓ session: " + CONFIG.SESSION_ID);
+      setInfoValue("peerIdDisplay", CONFIG.SESSION_ID);
       if (window.debugSetPeer) debugSetPeer(CONFIG.SESSION_ID);
       setStatus("status", "Ready — press ▶ Start Stream, then open viewer.", "connected");
     },
 
     onViewerReady: () => {
-      log("Viewer connected — initiating offer");
+      log("Viewer connected");
       viewerReady = true;
       if (streaming) createOffer();
       else setStatus("status", "Viewer connected — press ▶ Start Stream to send video.", "connected");
@@ -53,7 +51,7 @@ function initSignaling() {
     },
 
     onAnswer: async (sdp) => {
-      log("Received SDP answer");
+      log("SDP answer received");
       if (!pc) return;
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -95,22 +93,21 @@ function createPeerConnection() {
   // Add local tracks
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-  // Send ICE candidates to viewer via signaling
+  // Send ICE candidates to viewer
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) SignalingClient.sendIceCandidate(candidate.toJSON());
   };
 
   pc.onconnectionstatechange = () => {
-    log("Connection state: " + pc.connectionState);
-    if (pc.connectionState === "connected") {
+    const state = pc.connectionState;
+    log("Connection state: " + state);
+    if (state === "connected") {
       setStatus("status", "🟢 Streaming live to viewer", "streaming");
       if (window.debugSetStream) debugSetStream("live ✓");
-    } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+    } else if (state === "failed" || state === "disconnected") {
       setStatus("status", "🟡 Connection lost — waiting for viewer…", "error");
     }
   };
-
-  return pc;
 }
 
 async function createOffer() {
@@ -122,7 +119,7 @@ async function createOffer() {
     await pc.setLocalDescription(offer);
     SignalingClient.sendOffer(offer);
     log("SDP offer sent");
-    setStatus("status", "Offer sent — waiting for viewer to answer…", "connecting");
+    setStatus("status", "Offer sent — waiting for viewer answer…", "connecting");
   } catch (e) {
     log("createOffer failed: " + e.message, "error");
   }
@@ -144,7 +141,7 @@ async function startStream() {
       ? "No camera found on this device."
       : "Camera error: " + err.message;
     setStatus("status", msg, "error");
-    log("Camera error: " + err, "error");
+    log("Camera error: " + err.name, "error");
     return;
   }
 
@@ -157,19 +154,13 @@ async function startStream() {
   streaming = true;
   log("Camera ready");
 
-  if (viewerReady) {
-    await createOffer();
-  } else {
-    setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
-  }
+  if (viewerReady) await createOffer();
+  else setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
 }
 
 function stopStream() {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  if (pc) { pc.close(); pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (pc)          { pc.close(); pc = null; }
   ModuleA.disconnect();
   streaming   = false;
   viewerReady = false;

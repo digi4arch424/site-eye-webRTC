@@ -33,7 +33,6 @@
       cursor: pointer; letter-spacing: 0.1em;
     }
 
-    /* Settings panel */
     .settings-panel {
       background: var(--bg-panel); border: 1px solid var(--border);
       border-radius: var(--radius); overflow: hidden;
@@ -65,11 +64,10 @@
     }
     .settings-input:focus { border-color: var(--accent); }
     .settings-actions { display: flex; gap: 8px; margin-top: 4px; }
-
-    .btn-danger { border-color: #ef4444; color: #ef4444; }
-    .btn-danger:hover:not(:disabled) { background: #ef4444; color: #fff; border-color: #ef4444; }
+    .btn-danger  { border-color: #ef4444; color: #ef4444; }
+    .btn-danger:hover:not(:disabled)  { background: #ef4444; color: #fff; }
     .btn-success { border-color: var(--green); color: var(--green); }
-    .btn-success:hover:not(:disabled) { background: var(--green); color: #000; border-color: var(--green); }
+    .btn-success:hover:not(:disabled) { background: var(--green); color: #000; }
   </style>
 </head>
 <body>
@@ -86,13 +84,11 @@
 
     <main class="main">
 
-      <!-- Status -->
       <div class="status-bar">
         <span id="status" class="status status--info">Initialising…</span>
         <span class="status-indicator"></span>
       </div>
 
-      <!-- Video -->
       <div class="video-panel">
         <div class="video-label">LIVE FEED — <span id="videoSiteLabel">SITE-ALPHA</span></div>
         <span class="live-badge" id="liveBadge">● LIVE</span>
@@ -108,39 +104,36 @@
             Awaiting camera stream
           </div>
           <video id="remoteVideo" autoplay muted playsinline></video>
-          <button id="play-btn" onclick="manualPlay()">▶ TAP TO PLAY</button>
-          <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+          <button id="play-btn">▶ TAP TO PLAY</button>
+          <button class="fullscreen-btn" id="fullscreenBtn">⛶ Fullscreen</button>
         </div>
       </div>
 
-      <!-- Call Controls -->
       <div class="controls">
         <button class="btn btn-success" id="connectBtn" onclick="startViewer()">▶ Connect</button>
-        <button class="btn btn-danger" id="disconnectBtn" style="display:none" onclick="stopViewer()">■ End Call</button>
+        <button class="btn btn-danger"  id="disconnectBtn" style="display:none" onclick="stopViewer()">■ End Call</button>
       </div>
 
-      <!-- Settings -->
       <div class="settings-panel" id="settingsPanel">
-        <div class="settings-header" onclick="toggleSettings()">
+        <div class="settings-header" id="settingsHeader">
           <span class="settings-toggle" id="settingsToggle">▶</span>
           <span class="settings-title">Settings</span>
         </div>
         <div class="settings-body">
           <div class="settings-row">
-            <label class="settings-label">Sender Peer ID</label>
-            <input class="settings-input" id="senderPeerIdInput" type="text" placeholder="construction-cam-sender-001" />
+            <label class="settings-label">Session ID</label>
+            <input class="settings-input" id="senderPeerIdInput" type="text" placeholder="site-cam-001" />
           </div>
           <div class="settings-row">
             <label class="settings-label">Site ID</label>
             <input class="settings-input" id="siteIdInput" type="text" placeholder="site-alpha" />
           </div>
           <div class="settings-actions">
-            <button class="btn" onclick="applySettings()">Apply & Reconnect</button>
+            <button class="btn" id="applySettingsBtn">Apply & Reconnect</button>
           </div>
         </div>
       </div>
 
-      <!-- Info -->
       <div class="info-grid">
         <div class="info-item">
           <div class="info-label">Camera ID</div>
@@ -167,55 +160,17 @@
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Load order: config → utils → modules → debug → page logic → settings -->
+  <script src="config.js"></script>
+  <script src="utils.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-b.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-c.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-a.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/signaling.js"></script>
+  <script src="app.js"></script>
   <script src="debug.js"></script>
   <script src="diagnostics.js"></script>
   <script src="viewer.js"></script>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('senderPeerIdInput').value = CONFIG.SESSION_ID;
-      document.getElementById('siteIdInput').value = CONFIG.SITE_ID;
-      document.getElementById('infoCameraId').textContent = CONFIG.CAMERA_ID;
-      document.getElementById('infoSiteId').textContent = CONFIG.SITE_ID;
-      document.getElementById('videoSiteLabel').textContent = CONFIG.SITE_ID.toUpperCase();
-    });
-
-    function toggleSettings() {
-      const panel = document.getElementById('settingsPanel');
-      const toggle = document.getElementById('settingsToggle');
-      panel.classList.toggle('open');
-      toggle.textContent = panel.classList.contains('open') ? '▼' : '▶';
-    }
-
-    function applySettings() {
-      const sessionId = document.getElementById('senderPeerIdInput').value.trim();
-      const siteId    = document.getElementById('siteIdInput').value.trim();
-      if (sessionId) CONFIG.SESSION_ID = sessionId;
-      if (siteId) {
-        CONFIG.SITE_ID = siteId;
-        document.getElementById('infoSiteId').textContent = siteId;
-        document.getElementById('videoSiteLabel').textContent = siteId.toUpperCase();
-      }
-      toggleSettings();
-      stopViewer();
-    }
-
-    function toggleFullscreen() {
-      const panel = document.querySelector('.video-panel');
-      if (!document.fullscreenElement) panel.requestFullscreen().catch(console.error);
-      else document.exitFullscreen();
-    }
-
-    function manualPlay() {
-      const video = document.getElementById('remoteVideo');
-      const btn = document.getElementById('play-btn');
-      video.play().then(() => { if (btn) btn.style.display = 'none'; })
-        .catch(e => console.error('Manual play failed:', e));
-    }
-  </script>
+  <script src="settings.js"></script>
 </body>
 </html>

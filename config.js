@@ -32,8 +32,14 @@ const CONFIG = {
   // turnServers: add Metered.ca credentials here for cross-network streaming
   // Sign up free at https://dashboard.metered.ca (500MB/month free)
   NETWORK: {
-    turnServers:  [],
-    providerName: "None — add Metered.ca for cross-network",
+    turnServers:  [
+    { urls: "stun:standard.relay.metered.ca:80" },
+    { urls: "turn:standard.relay.metered.ca:80", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turn:standard.relay.metered.ca:80?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turn:standard.relay.metered.ca:443", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turns:standard.relay.metered.ca:443?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+  ],
+    providerName: "Metered.ca",
     timeouts:     { local: 8000, relay: 15000 },
   },
 

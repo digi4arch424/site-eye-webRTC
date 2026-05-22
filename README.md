@@ -75,7 +75,7 @@ construction-cam/
 ## Milestones
 
 - ✅ M1 — Browser-to-browser streaming (current)
-- ✅ M2 — GPS + compass metadata overlay
+- 🔜 M2 — GPS + compass metadata overlay
 - 🔜 M3 — Visual marker anchoring (AR.js)
 - 🔜 M4 — 3D overlay on viewer (Three.js)
 - 🔜 M5 — Multiset WebXR VPS integration

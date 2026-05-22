@@ -20,6 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("startBtn").addEventListener("click", startStream);
   document.getElementById("stopBtn").addEventListener("click", stopStream);
   initNetworkModules("sender");
+  LocationModule.init("sender");
   initSignaling();
 });
 
@@ -90,6 +91,10 @@ function createPeerConnection() {
   ModuleA.onCallEstablished(pc);
   ModuleA.onStreamSent();
 
+  // Create data channel for location metadata (M2)
+  const locationChannel = pc.createDataChannel("location", { ordered: true });
+  LocationModule.attachDataChannel(locationChannel);
+
   // Add local tracks
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
@@ -153,6 +158,7 @@ async function startStream() {
   document.getElementById("stopBtn").style.display = "inline-block";
   streaming = true;
   log("Camera ready");
+  LocationModule.startCapture();
 
   if (viewerReady) await createOffer();
   else setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");
@@ -162,6 +168,7 @@ function stopStream() {
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   if (pc)          { pc.close(); pc = null; }
   ModuleA.disconnect();
+  LocationModule.stopCapture();
   streaming   = false;
   viewerReady = false;
 

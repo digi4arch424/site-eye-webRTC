@@ -17,6 +17,7 @@ let connected = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   initNetworkModules("viewer");
+  LocationModule.init("viewer");
   // Does not auto-connect — user taps ▶ Connect
 });
 
@@ -88,6 +89,13 @@ function createPeerConnection() {
   // Declare receive-only — no dummy stream needed
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
+
+  // Receive location data channel from sender (M2)
+  pc.ondatachannel = (event) => {
+    if (event.channel.label === "location") {
+      LocationModule.onDataChannel(event);
+    }
+  };
 
   // Receive remote tracks — fires with unmuted tracks
   pc.ontrack = ({ track, streams }) => {

@@ -15,7 +15,7 @@ const CONFIG = {
 
   // ── Signaling Server ─────────────────────────────────────────────────────────
   // Replace with your webrtc-signaling-server Render.com URL after deploy
-  SIGNALING_URL: "https://webrtc-signaling-server-nxsu.onrender.com",
+  SIGNALING_URL: "wss://YOUR-SIGNALING-SERVER.onrender.com",
 
   // ── Camera Constraints ───────────────────────────────────────────────────────
   CAMERA_CONSTRAINTS: {
@@ -32,15 +32,19 @@ const CONFIG = {
   // turnServers: add Metered.ca credentials here for cross-network streaming
   // Sign up free at https://dashboard.metered.ca (500MB/month free)
   NETWORK: {
-    turnServers:  [
-    { urls: "stun:standard.relay.metered.ca:80" },
-    { urls: "turn:standard.relay.metered.ca:80", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
-    { urls: "turn:standard.relay.metered.ca:80?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
-    { urls: "turn:standard.relay.metered.ca:443", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
-    { urls: "turns:standard.relay.metered.ca:443?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
-  ],
-    providerName: "Metered.ca",
+    turnServers:  [],
+    providerName: "None — add Metered.ca for cross-network",
     timeouts:     { local: 8000, relay: 15000 },
+  },
+
+  // ── GPS / Location Module (M2) ───────────────────────────────────────────────
+  GPS: {
+    updateInterval:      2000,   // ms between location data transmissions
+    highAccuracyDelay:   5000,   // ms before upgrading from fast to precise GPS fix
+    lowPassAlpha:        0.15,   // heading smoothing factor (0=frozen, 1=instant)
+    deadbandDegrees:     2,      // minimum heading change (°) before display updates
+    watchTimeout:        10000,  // ms before GPS watch reports error
+    watchMaxAge:         1000,   // ms — max age of cached GPS position
   },
 
   // ── Reconnect Backoff ────────────────────────────────────────────────────────

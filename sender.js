@@ -158,7 +158,6 @@ async function startStream() {
   document.getElementById("stopBtn").style.display = "inline-block";
   streaming = true;
   log("Camera ready");
-  LocationModule.startCapture();
 
   if (viewerReady) await createOffer();
   else setStatus("status", "🟡 Camera ready — open viewer on desktop.", "streaming");

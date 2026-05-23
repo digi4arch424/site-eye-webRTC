@@ -4,11 +4,21 @@
  *
  * Captures GPS coordinates and compass heading from the sender device.
  * Transmits to viewer via WebRTC data channel alongside the video stream.
- * Displays as an overlay on the video panel on both sender and viewer.
+ * Displays as a toggleable overlay on the video panel on both sender and viewer.
+ *
+ * All tuneable values live in CONFIG.GPS (config.js) — no magic numbers here.
+ *
+ * GPS strategy (two-phase):
+ *   Phase 1 — fast fix (enableHighAccuracy: false) — quick position from cell/WiFi
+ *   Phase 2 — precise fix (enableHighAccuracy: true) — full GPS after CONFIG.GPS.highAccuracyDelay
+ *
+ * Heading smoothing:
+ *   Low-pass filter  — smooths sensor noise, handles 355°→5° wrap-around
+ *   Deadband         — suppresses micro-fluctuations below CONFIG.GPS.deadbandDegrees
  *
  * Current (M2):
  *   - GPS coordinates (lat/lng)
- *   - Compass heading (degrees)
+ *   - Compass heading (degrees + cardinal point)
  *   - Accuracy (metres)
  *
  * Placeholder slots for future milestones:
@@ -23,117 +33,138 @@
  *   type:      "location",
  *   timestamp: 1712345678000,
  *   coords: {
- *     lat:      -25.2744,
- *     lng:      133.7751,
- *     accuracy: 5.2,        // metres
- *     heading:  247.3,      // degrees from north (0-360)
- *     // ── Future placeholders ──
- *     altitude:    null,    // M3
- *     speed:       null,    // M4
- *     pitch:       null,    // M5
- *     roll:        null,    // M5
- *     siteAnchorId: null,   // M5
- *     bimElementId: null,   // M6
+ *     lat:         -25.2744,
+ *     lng:         133.7751,
+ *     accuracy:    5.2,
+ *     heading:     247,
+ *     altitude:    null,   // M3
+ *     speed:       null,   // M4
+ *     pitch:       null,   // M5
+ *     roll:        null,   // M5
+ *     siteAnchorId: null,  // M5
+ *     bimElementId: null,  // M6
  *   }
  * }
  */
 
 const LocationModule = (function () {
 
-  const UPDATE_INTERVAL = 2000; // ms between GPS updates
+  // ── Read all tuneable values from CONFIG.GPS ──────────────────────────────────
+  // No magic numbers in this file — all values come from config.js
+  function _cfg() { return CONFIG.GPS; }
 
-  // ── Heading smoothing ─────────────────────────────────────────────────────────
-  const LOW_PASS_ALPHA  = 0.15;  // 0 = no update, 1 = instant. 0.15 = smooth drift
-  const DEADBAND_DEGREES = 2;    // minimum change before display updates
-  let _smoothedHeading   = null; // low-pass filtered heading
-  let _displayedHeading  = null; // last heading shown on screen
-
+  // ── State ─────────────────────────────────────────────────────────────────────
   let _dataChannel      = null;
   let _watchId          = null;
   let _orientationBound = false;
   let _overlayVisible   = false;
-  let _role             = null;  // "sender" | "viewer"
+  let _role             = null;
   let _intervalHandle   = null;
+  let _phaseTimer       = null;
+  let _gpsPhase         = 0;      // 0 = not started, 1 = fast, 2 = precise
+
+  // Heading smoothing state
+  let _smoothedHeading  = null;
+  let _displayedHeading = null;
 
   // Last known position
   let _lastCoords = {
-    lat:         null,
-    lng:         null,
-    accuracy:    null,
-    heading:     null,
+    lat:          null,
+    lng:          null,
+    accuracy:     null,
+    heading:      null,
     // Future placeholders
-    altitude:    null,
-    speed:       null,
-    pitch:       null,
-    roll:        null,
+    altitude:     null,
+    speed:        null,
+    pitch:        null,
+    roll:         null,
     siteAnchorId: null,
     bimElementId: null,
   };
 
-  // ── Init ──────────────────────────────────────────────────────────────────────
+  // ── Init — called on DOMContentLoaded ────────────────────────────────────────
   function init(role) {
     _role = role;
     _injectOverlay();
     _injectToggleButton();
+
+    if (role === "sender") {
+      // Start compass immediately — no GPS or stream needed
+      _startCompass();
+      // Start GPS immediately — don't wait for stream
+      _startGpsPhase1();
+    }
+
     _log("Location module initialised — role: " + role);
   }
 
-  // ── Sender: start capturing GPS + compass ─────────────────────────────────────
-  function startCapture() {
-    if (_role !== "sender") return;
+  // ── Two-phase GPS ─────────────────────────────────────────────────────────────
 
-    // GPS
+  function _startGpsPhase1() {
     if (!navigator.geolocation) {
-      _log("Geolocation not supported on this device", "warn");
-      _updateOverlay({ error: "GPS not supported" });
+      _log("Geolocation not supported", "warn");
+      _setOverlayMessage("GPS not supported on this device");
       return;
     }
 
+    _gpsPhase = 1;
+    _log("GPS phase 1 — fast fix");
+    _setOverlayMessage("Acquiring GPS…");
+
     _watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        _lastCoords.lat      = pos.coords.latitude;
-        _lastCoords.lng      = pos.coords.longitude;
-        _lastCoords.accuracy = pos.coords.accuracy;
-        _lastCoords.altitude = pos.coords.altitude;
-        _lastCoords.speed    = pos.coords.speed;
-        _updateOverlay(_lastCoords);
-        _transmit();
-      },
-      (err) => {
-        _log("GPS error: " + err.message, "warn");
-        _updateOverlay({ error: "GPS unavailable" });
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 1000 }
+      _onPosition,
+      _onGpsError,
+      {
+        enableHighAccuracy: false,           // fast fix from cell/WiFi
+        timeout:            _cfg().watchTimeout,
+        maximumAge:         _cfg().watchMaxAge,
+      }
     );
 
-    // Compass (DeviceOrientationEvent)
-    _startCompass();
-
-    // Send location updates on interval even if GPS hasn't changed
-    _intervalHandle = setInterval(_transmit, UPDATE_INTERVAL);
-
-    _log("Location capture started");
+    // After delay, upgrade to high accuracy
+    _phaseTimer = setTimeout(_startGpsPhase2, _cfg().highAccuracyDelay);
   }
 
-  function stopCapture() {
+  function _startGpsPhase2() {
     if (_watchId !== null) {
       navigator.geolocation.clearWatch(_watchId);
       _watchId = null;
     }
-    if (_intervalHandle) {
-      clearInterval(_intervalHandle);
-      _intervalHandle = null;
-    }
-    _smoothedHeading  = null;
-    _displayedHeading = null;
-    _log("Location capture stopped");
+
+    _gpsPhase = 2;
+    _log("GPS phase 2 — high accuracy");
+
+    _watchId = navigator.geolocation.watchPosition(
+      _onPosition,
+      _onGpsError,
+      {
+        enableHighAccuracy: true,            // full GPS precision
+        timeout:            _cfg().watchTimeout,
+        maximumAge:         _cfg().watchMaxAge,
+      }
+    );
+  }
+
+  function _onPosition(pos) {
+    _lastCoords.lat      = pos.coords.latitude;
+    _lastCoords.lng      = pos.coords.longitude;
+    _lastCoords.accuracy = pos.coords.accuracy;
+    _lastCoords.altitude = pos.coords.altitude;
+    _lastCoords.speed    = pos.coords.speed;
+    _updateOverlay(_lastCoords);
+    _transmit();
+  }
+
+  function _onGpsError(err) {
+    _log("GPS error: " + err.message, "warn");
+    _setOverlayMessage("GPS unavailable — " + err.message);
   }
 
   // ── Compass ───────────────────────────────────────────────────────────────────
   function _startCompass() {
     if (_orientationBound) return;
 
-    // iOS 13+ requires permission
+    // iOS 13+ requires explicit permission request
     if (typeof DeviceOrientationEvent !== "undefined" &&
         typeof DeviceOrientationEvent.requestPermission === "function") {
       DeviceOrientationEvent.requestPermission()
@@ -165,25 +196,23 @@ const LocationModule = (function () {
 
     if (rawHeading === null) return;
 
-    // ── Low-pass filter ───────────────────────────────────────────────────────
-    // Handles wrap-around (e.g. smoothing between 355° and 5°)
+    // ── Low-pass filter (handles 355°→5° wrap-around) ────────────────────────
     if (_smoothedHeading === null) {
       _smoothedHeading = rawHeading;
     } else {
       let delta = rawHeading - _smoothedHeading;
-      // Correct for wrap-around
-      if (delta > 180)  delta -= 360;
+      if (delta >  180) delta -= 360;
       if (delta < -180) delta += 360;
-      _smoothedHeading = (_smoothedHeading + LOW_PASS_ALPHA * delta + 360) % 360;
+      _smoothedHeading = (_smoothedHeading + _cfg().lowPassAlpha * delta + 360) % 360;
     }
 
     const rounded = Math.round(_smoothedHeading);
 
-    // ── Deadband — only update display if change exceeds threshold ────────────
+    // ── Deadband — only update if change exceeds threshold ───────────────────
     if (_displayedHeading === null ||
-        Math.abs(rounded - _displayedHeading) >= DEADBAND_DEGREES) {
-      _displayedHeading        = rounded;
-      _lastCoords.heading      = rounded;
+        Math.abs(rounded - _displayedHeading) >= _cfg().deadbandDegrees) {
+      _displayedHeading   = rounded;
+      _lastCoords.heading = rounded;
       _updateOverlay(_lastCoords);
       _transmit();
     }
@@ -191,25 +220,23 @@ const LocationModule = (function () {
 
   // ── Data channel ──────────────────────────────────────────────────────────────
 
-  /**
-   * Attach a WebRTC data channel for transmitting location to viewer.
-   * Called from sender.js after RTCPeerConnection is created.
-   * @param {RTCDataChannel} channel
-   */
   function attachDataChannel(channel) {
     _dataChannel = channel;
     _log("Data channel attached");
 
-    channel.onopen  = () => _log("Location data channel open ✓", "success");
-    channel.onclose = () => _log("Location data channel closed", "warn");
+    channel.onopen  = () => {
+      _log("Location data channel open ✓", "success");
+      // Start interval transmissions once channel is open
+      if (_intervalHandle) clearInterval(_intervalHandle);
+      _intervalHandle = setInterval(_transmit, _cfg().updateInterval);
+    };
+    channel.onclose = () => {
+      _log("Location data channel closed", "warn");
+      if (_intervalHandle) { clearInterval(_intervalHandle); _intervalHandle = null; }
+    };
     channel.onerror = (e) => _log("Data channel error: " + e.message, "error");
   }
 
-  /**
-   * Receive location data from sender (viewer side).
-   * Called from viewer.js when RTCPeerConnection fires ondatachannel.
-   * @param {RTCDataChannelEvent} event
-   */
   function onDataChannel(event) {
     const channel = event.channel;
     _log("Location data channel received");
@@ -217,9 +244,7 @@ const LocationModule = (function () {
     channel.onmessage = ({ data }) => {
       try {
         const msg = JSON.parse(data);
-        if (msg.type === "location") {
-          _updateOverlay(msg.coords);
-        }
+        if (msg.type === "location") _updateOverlay(msg.coords);
       } catch {
         _log("Invalid data channel message", "warn");
       }
@@ -231,12 +256,25 @@ const LocationModule = (function () {
 
   function _transmit() {
     if (!_dataChannel || _dataChannel.readyState !== "open") return;
-    const msg = {
+    _dataChannel.send(JSON.stringify({
       type:      "location",
       timestamp: Date.now(),
       coords:    { ..._lastCoords },
-    };
-    _dataChannel.send(JSON.stringify(msg));
+    }));
+  }
+
+  // ── Stop ──────────────────────────────────────────────────────────────────────
+  function stopCapture() {
+    if (_watchId !== null) {
+      navigator.geolocation.clearWatch(_watchId);
+      _watchId = null;
+    }
+    if (_intervalHandle) { clearInterval(_intervalHandle); _intervalHandle = null; }
+    if (_phaseTimer)     { clearTimeout(_phaseTimer);      _phaseTimer = null; }
+    _smoothedHeading  = null;
+    _displayedHeading = null;
+    _gpsPhase         = 0;
+    _log("Location capture stopped");
   }
 
   // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -267,7 +305,7 @@ const LocationModule = (function () {
       <div style="color:#f59e0b;font-size:9px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px">
         📍 Location
       </div>
-      <div id="loc-lat">LAT  —</div>
+      <div id="loc-lat">LAT  Acquiring…</div>
       <div id="loc-lng">LNG  —</div>
       <div id="loc-heading">HDG  —</div>
       <div id="loc-accuracy" style="color:#5a6a78;font-size:10px">ACC  —</div>
@@ -285,12 +323,11 @@ const LocationModule = (function () {
     if (!controls) return;
 
     const btn = document.createElement("button");
-    btn.id        = "location-toggle-btn";
-    btn.className = "btn";
+    btn.id          = "location-toggle-btn";
+    btn.className   = "btn";
     btn.textContent = "📍 Location";
-    btn.style.display = "none"; // shown after GPS starts
     btn.addEventListener("click", toggleOverlay);
-    controls.appendChild(btn);
+    controls.appendChild(btn);   // visible immediately — no GPS wait
   }
 
   function toggleOverlay() {
@@ -300,43 +337,33 @@ const LocationModule = (function () {
     overlay.style.display = _overlayVisible ? "block" : "none";
     const btn = document.getElementById("location-toggle-btn");
     if (btn) {
-      btn.style.color        = _overlayVisible ? "var(--green)" : "";
-      btn.style.borderColor  = _overlayVisible ? "var(--green)" : "";
+      btn.style.color       = _overlayVisible ? "var(--green)" : "";
+      btn.style.borderColor = _overlayVisible ? "var(--green)" : "";
     }
   }
 
-  function showToggleButton() {
-    const btn = document.getElementById("location-toggle-btn");
-    if (btn) btn.style.display = "inline-block";
+  function _setOverlayMessage(msg) {
+    _set("loc-lat", msg);
+    _set("loc-lng",      "");
+    _set("loc-heading",  "");
+    _set("loc-accuracy", "");
   }
 
   function _updateOverlay(coords) {
     if (!coords) return;
 
-    if (coords.error) {
-      _set("loc-lat",      "LAT  " + coords.error);
-      _set("loc-lng",      "");
-      _set("loc-heading",  "");
-      _set("loc-accuracy", "");
-      showToggleButton();
-      return;
-    }
-
     if (coords.lat !== null) {
       _set("loc-lat",      "LAT  " + coords.lat.toFixed(6));
       _set("loc-lng",      "LNG  " + coords.lng.toFixed(6));
-      showToggleButton();
     }
-
     if (coords.heading !== null) {
       _set("loc-heading",  "HDG  " + coords.heading + "° " + _compassPoint(coords.heading));
     }
-
     if (coords.accuracy !== null) {
       _set("loc-accuracy", "ACC  ±" + Math.round(coords.accuracy) + "m");
     }
 
-    // Dispatch event so other modules can consume location data (M3+)
+    // Dispatch event for future modules (M3+)
     window.dispatchEvent(new CustomEvent("location-update", { detail: coords }));
   }
 
@@ -358,7 +385,6 @@ const LocationModule = (function () {
   // ── Public API ────────────────────────────────────────────────────────────────
   return {
     init,
-    startCapture,
     stopCapture,
     attachDataChannel,
     onDataChannel,

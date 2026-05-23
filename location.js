@@ -42,10 +42,15 @@ const LocationModule = (function () {
 
   const UPDATE_INTERVAL = 2000; // ms between GPS updates
 
+  // ── Heading smoothing ─────────────────────────────────────────────────────────
+  const LOW_PASS_ALPHA  = 0.15;  // 0 = no update, 1 = instant. 0.15 = smooth drift
+  const DEADBAND_DEGREES = 2;    // minimum change before display updates
+  let _smoothedHeading   = null; // low-pass filtered heading
+  let _displayedHeading  = null; // last heading shown on screen
+
   let _dataChannel      = null;
   let _watchId          = null;
   let _orientationBound = false;
-  let _heading          = null;
   let _overlayVisible   = false;
   let _role             = null;  // "sender" | "viewer"
   let _intervalHandle   = null;
@@ -119,6 +124,8 @@ const LocationModule = (function () {
       clearInterval(_intervalHandle);
       _intervalHandle = null;
     }
+    _smoothedHeading  = null;
+    _displayedHeading = null;
     _log("Location capture stopped");
   }
 
@@ -148,16 +155,38 @@ const LocationModule = (function () {
   }
 
   function _onOrientation(e) {
-    // webkitCompassHeading is iOS, alpha is Android (needs conversion)
+    let rawHeading = null;
+
     if (e.webkitCompassHeading !== undefined) {
-      _heading = e.webkitCompassHeading;
-    } else if (e.absolute && e.alpha !== null) {
-      _heading = (360 - e.alpha) % 360;
+      rawHeading = e.webkitCompassHeading;
     } else if (e.alpha !== null) {
-      _heading = (360 - e.alpha) % 360;
+      rawHeading = (360 - e.alpha) % 360;
     }
-    _lastCoords.heading = _heading !== null ? Math.round(_heading) : null;
-    _updateOverlay(_lastCoords);
+
+    if (rawHeading === null) return;
+
+    // ── Low-pass filter ───────────────────────────────────────────────────────
+    // Handles wrap-around (e.g. smoothing between 355° and 5°)
+    if (_smoothedHeading === null) {
+      _smoothedHeading = rawHeading;
+    } else {
+      let delta = rawHeading - _smoothedHeading;
+      // Correct for wrap-around
+      if (delta > 180)  delta -= 360;
+      if (delta < -180) delta += 360;
+      _smoothedHeading = (_smoothedHeading + LOW_PASS_ALPHA * delta + 360) % 360;
+    }
+
+    const rounded = Math.round(_smoothedHeading);
+
+    // ── Deadband — only update display if change exceeds threshold ────────────
+    if (_displayedHeading === null ||
+        Math.abs(rounded - _displayedHeading) >= DEADBAND_DEGREES) {
+      _displayedHeading        = rounded;
+      _lastCoords.heading      = rounded;
+      _updateOverlay(_lastCoords);
+      _transmit();
+    }
   }
 
   // ── Data channel ──────────────────────────────────────────────────────────────

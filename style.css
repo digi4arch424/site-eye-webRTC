@@ -9,11 +9,17 @@
   --border-hi:    #3d4a55;
   --accent:       #f59e0b;
   --accent-dim:   #92600a;
+  --accent-alpha: rgba(245,158,11,0.12);
   --green:        #22c55e;
   --red:          #ef4444;
   --blue:         #38bdf8;
+  --purple:       #a78bfa;
+  --pink:         #f472b6;
+  --yellow:       #fbbf24;
   --text:         #d4dde6;
   --text-muted:   #5a6a78;
+  --text-dim:     #3d4a55;
+  --text-faint:   #2d3a44;
   --mono:         'Share Tech Mono', monospace;
   --sans:         'Barlow Condensed', sans-serif;
   --radius:       4px;

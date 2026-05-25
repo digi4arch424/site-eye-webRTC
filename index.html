@@ -7,18 +7,9 @@
   <title>Construction Cam</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=Barlow:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #09090b;
-      --amber: #f59e0b;
-      --amber-dim: rgba(245,158,11,0.12);
-      --text: #e4e4e7;
-      --muted: #52525b;
-      --border: #1f1f23;
-    }
-
+    /* Landing page specific — uses variables from style.css */
     html, body {
       height: 100%;
       background: var(--bg);
@@ -67,19 +58,17 @@
       gap: 0;
     }
 
-    /* ── Tag ── */
     .tag {
-      font-family: 'Share Tech Mono', monospace;
+      font-family: var(--mono);
       font-size: 11px;
       letter-spacing: 0.2em;
-      color: var(--amber);
+      color: var(--accent);
       text-transform: uppercase;
       margin-bottom: 20px;
       opacity: 0;
       animation: fadeUp 0.6s ease forwards 0.1s;
     }
 
-    /* ── Title ── */
     h1 {
       font-family: 'Bebas Neue', sans-serif;
       font-size: clamp(64px, 12vw, 120px);
@@ -91,24 +80,20 @@
       animation: fadeUp 0.6s ease forwards 0.2s;
     }
 
-    h1 span {
-      color: var(--amber);
-    }
+    h1 span { color: var(--accent); }
 
-    /* ── Divider ── */
     .divider {
       width: 40px;
       height: 1px;
-      background: var(--amber);
+      background: var(--accent);
       margin: 32px auto;
       opacity: 0;
       animation: fadeUp 0.6s ease forwards 0.35s;
     }
 
-    /* ── Subtitle ── */
     .subtitle {
       font-size: 14px;
-      color: var(--muted);
+      color: var(--text-muted);
       letter-spacing: 0.05em;
       text-align: center;
       max-width: 320px;
@@ -117,7 +102,6 @@
       animation: fadeUp 0.6s ease forwards 0.4s;
     }
 
-    /* ── Cards ── */
     .cards {
       display: flex;
       gap: 16px;
@@ -136,7 +120,7 @@
       gap: 10px;
       width: 200px;
       padding: 24px;
-      background: var(--amber-dim);
+      background: var(--accent-alpha);
       border: 1px solid rgba(245,158,11,0.2);
       border-radius: 3px;
       text-decoration: none;
@@ -155,23 +139,20 @@
     }
 
     .card:hover {
-      border-color: var(--amber);
+      border-color: var(--accent);
       background: rgba(245,158,11,0.16);
       transform: translateY(-2px);
     }
 
     .card:hover::before { opacity: 1; }
 
-    .card-icon {
-      font-size: 22px;
-      line-height: 1;
-    }
+    .card-icon  { font-size: 22px; line-height: 1; }
 
     .card-label {
-      font-family: 'Share Tech Mono', monospace;
+      font-family: var(--mono);
       font-size: 10px;
       letter-spacing: 0.18em;
-      color: var(--amber);
+      color: var(--accent);
       text-transform: uppercase;
     }
 
@@ -182,48 +163,37 @@
       line-height: 1;
     }
 
-    .card-desc {
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.6;
-    }
+    .card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
 
     .card-arrow {
       position: absolute;
-      bottom: 20px;
-      right: 20px;
+      bottom: 20px; right: 20px;
       font-size: 16px;
-      color: var(--amber);
+      color: var(--accent);
       opacity: 0;
       transform: translateX(-4px);
       transition: opacity 0.2s, transform 0.2s;
     }
 
-    .card:hover .card-arrow {
-      opacity: 1;
-      transform: translateX(0);
-    }
+    .card:hover .card-arrow { opacity: 1; transform: translateX(0); }
 
-    /* ── Footer ── */
     .footer {
       position: fixed;
-      bottom: 24px;
-      left: 0; right: 0;
+      bottom: 24px; left: 0; right: 0;
       text-align: center;
-      font-family: 'Share Tech Mono', monospace;
+      font-family: var(--mono);
       font-size: 10px;
       letter-spacing: 0.15em;
-      color: var(--muted);
+      color: var(--text-muted);
       opacity: 0;
       animation: fadeUp 0.6s ease forwards 0.7s;
     }
 
-    /* ── Corner marks ── */
     .corner { position: fixed; width: 16px; height: 16px; }
-    .corner--tl { top: 20px; left: 20px; border-top: 1px solid var(--amber); border-left: 1px solid var(--amber); }
-    .corner--tr { top: 20px; right: 20px; border-top: 1px solid var(--amber); border-right: 1px solid var(--amber); }
-    .corner--bl { bottom: 20px; left: 20px; border-bottom: 1px solid var(--amber); border-left: 1px solid var(--amber); }
-    .corner--br { bottom: 20px; right: 20px; border-bottom: 1px solid var(--amber); border-right: 1px solid var(--amber); }
+    .corner--tl { top: 20px; left: 20px;    border-top: 1px solid var(--accent); border-left:  1px solid var(--accent); }
+    .corner--tr { top: 20px; right: 20px;   border-top: 1px solid var(--accent); border-right: 1px solid var(--accent); }
+    .corner--bl { bottom: 20px; left: 20px;  border-bottom: 1px solid var(--accent); border-left:  1px solid var(--accent); }
+    .corner--br { bottom: 20px; right: 20px; border-bottom: 1px solid var(--accent); border-right: 1px solid var(--accent); }
 
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(14px); }
@@ -232,7 +202,7 @@
 
     @media (max-width: 480px) {
       .cards { flex-direction: column; align-items: center; }
-      .card { width: 100%; max-width: 280px; }
+      .card  { width: 100%; max-width: 280px; }
     }
   </style>
 </head>

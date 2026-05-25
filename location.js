@@ -292,23 +292,23 @@ const LocationModule = (function () {
       z-index: 5;
       background: rgba(0,0,0,0.65);
       border: 1px solid rgba(245,158,11,0.4);
-      border-radius: 3px;
+      border-radius: var(--radius, 4px);
       padding: 8px 12px;
-      font-family: 'Share Tech Mono', monospace;
+      font-family: var(--mono, 'Share Tech Mono', monospace);
       font-size: 11px;
       line-height: 1.8;
-      color: #d4dde6;
+      color: var(--text, #d4dde6);
       pointer-events: none;
       min-width: 200px;
     `;
     overlay.innerHTML = `
-      <div style="color:#f59e0b;font-size:9px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px">
+      <div style="color:var(--accent, #f59e0b);font-size:9px;letter-spacing:.15em;text-transform:uppercase;margin-bottom:4px">
         📍 Location
       </div>
       <div id="loc-lat">LAT  Acquiring…</div>
       <div id="loc-lng">LNG  —</div>
       <div id="loc-heading">HDG  —</div>
-      <div id="loc-accuracy" style="color:#5a6a78;font-size:10px">ACC  —</div>
+      <div id="loc-accuracy" style="color:var(--text-muted, #5a6a78);font-size:10px">ACC  —</div>
       <!-- Future M3+ placeholders (hidden until implemented) -->
       <div id="loc-altitude"    style="display:none">ALT  —</div>
       <div id="loc-speed"       style="display:none">SPD  —</div>

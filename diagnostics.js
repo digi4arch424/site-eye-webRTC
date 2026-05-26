@@ -165,10 +165,10 @@
   // ── Test functions ────────────────────────────────────────────────────────────
   async function testSignalingServer() {
     try {
-      const res = await fetch(
-        `https://${CONFIG?.PEER_SERVER?.host || "peerjs-signaling-server-denf.onrender.com"}/`,
-        { signal: AbortSignal.timeout(5000) }
-      );
+      const url = CONFIG?.SIGNALING_URL
+        ? CONFIG.SIGNALING_URL.replace("wss://", "https://").replace("ws://", "http://")
+        : "https://peerjs-signaling-server-denf.onrender.com";
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
       return res.ok;
     } catch { return false; }
   }
@@ -202,6 +202,106 @@
 
   function testDeviceOrientation() {
     return typeof DeviceOrientationEvent !== "undefined";
+  }
+
+  // ── Hardware capability tests ─────────────────────────────────────────────────
+
+  async function getHardwareProfile() {
+    const profile = {
+      cores:        navigator.hardwareConcurrency || null,
+      memory:       navigator.deviceMemory        || null,
+      webgl:        null,
+      gpu:          null,
+      webxr:        !!navigator.xr,
+      battery:      null,
+      fps:          null,
+      isMobile:     /Android|iPhone|iPad/i.test(navigator.userAgent),
+    };
+
+    // WebGL + GPU
+    try {
+      const canvas  = document.createElement("canvas");
+      const gl      = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (gl) {
+        profile.webgl = true;
+        const ext = gl.getExtension("WEBGL_debug_renderer_info");
+        if (ext) {
+          profile.gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+        }
+      } else {
+        profile.webgl = false;
+      }
+    } catch { profile.webgl = false; }
+
+    // Battery (where supported)
+    try {
+      if (navigator.getBattery) {
+        const bat = await navigator.getBattery();
+        profile.battery = {
+          level:   Math.round(bat.level * 100),
+          charging: bat.charging,
+        };
+      }
+    } catch {}
+
+    // FPS measurement — render 60 frames and measure
+    await new Promise(resolve => {
+      let frames  = 0;
+      const start = performance.now();
+      const limit = 60;
+      function tick() {
+        frames++;
+        if (frames < limit) {
+          requestAnimationFrame(tick);
+        } else {
+          const elapsed = performance.now() - start;
+          profile.fps = Math.round((frames / elapsed) * 1000);
+          resolve();
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+
+    return profile;
+  }
+
+  function rateHardware(profile) {
+    // Rate device capability for upcoming milestones
+    const ratings = [];
+
+    // CPU cores
+    if (profile.cores >= 8)      ratings.push({ label: "CPU", value: profile.cores + " cores", grade: "pass",  note: "M3/M5 ready" });
+    else if (profile.cores >= 4) ratings.push({ label: "CPU", value: profile.cores + " cores", grade: "warn",  note: "M3 OK, M5 may be slow" });
+    else if (profile.cores)      ratings.push({ label: "CPU", value: profile.cores + " cores", grade: "fail",  note: "M3/M5 may struggle" });
+    else                         ratings.push({ label: "CPU", value: "Unknown",                 grade: "warn",  note: "Could not detect" });
+
+    // RAM
+    if (profile.memory >= 4)     ratings.push({ label: "RAM", value: profile.memory + " GB",   grade: "pass",  note: "Sufficient for M3–M5" });
+    else if (profile.memory >= 2) ratings.push({ label: "RAM", value: profile.memory + " GB",  grade: "warn",  note: "M3 OK, monitor M5" });
+    else if (profile.memory)     ratings.push({ label: "RAM", value: profile.memory + " GB",   grade: "fail",  note: "May struggle with AR/VPS" });
+    else                         ratings.push({ label: "RAM", value: "Unknown",                 grade: "warn",  note: "Could not detect" });
+
+    // GPU / WebGL
+    if (profile.webgl)           ratings.push({ label: "GPU", value: profile.gpu ? profile.gpu.slice(0,30) : "Available", grade: "pass", note: "M4 3D overlay ready" });
+    else                         ratings.push({ label: "GPU", value: "No WebGL",                grade: "fail",  note: "M4 Three.js will not work" });
+
+    // FPS
+    if (profile.fps >= 55)       ratings.push({ label: "FPS", value: profile.fps + " fps",     grade: "pass",  note: "Smooth rendering" });
+    else if (profile.fps >= 30)  ratings.push({ label: "FPS", value: profile.fps + " fps",     grade: "warn",  note: "Moderate — monitor under load" });
+    else if (profile.fps)        ratings.push({ label: "FPS", value: profile.fps + " fps",     grade: "fail",  note: "May struggle with AR overlays" });
+
+    // WebXR
+    if (profile.webxr)           ratings.push({ label: "WebXR", value: "Supported",            grade: "pass",  note: "M3 AR markers ready" });
+    else                         ratings.push({ label: "WebXR", value: "Not supported",         grade: "fail",  note: "M3 AR.js will not work" });
+
+    // Battery (phone only)
+    if (profile.battery) {
+      const grade = profile.battery.level > 20 ? "pass" : "warn";
+      const note  = profile.battery.charging ? "Charging ✓" : (profile.battery.level < 20 ? "Low — plug in for site use" : "Not charging");
+      ratings.push({ label: "Battery", value: profile.battery.level + "%", grade, note });
+    }
+
+    return ratings;
   }
 
   // ── Styles ───────────────────────────────────────────────────────────────────
@@ -304,24 +404,24 @@
     }
     .diag-spinner {
       display: inline-block; width: 20px; height: 20px;
-      border: 2px solid #1e2830; border-top-color: var(--accent);
+      border: 2px solid var(--border); border-top-color: var(--accent);
       border-radius: 50%; animation: diag-spin .8s linear infinite;
       margin-right: 10px; vertical-align: middle;
     }
     @keyframes diag-spin { to { transform: rotate(360deg); } }
 
     #diag-cost-summary {
-      margin-top: 24px; background: #0d1117;
-      border: 1px solid #1e2830; border-radius: 3px; padding: 16px;
+      margin-top: 24px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 3px; padding: 16px;
     }
     #diag-cost-summary h3 {
-      color: #f59e0b; font-size: 11px; letter-spacing: .15em;
+      color: var(--accent); font-size: 11px; letter-spacing: .15em;
       text-transform: uppercase; margin-bottom: 12px;
     }
     .diag-cost-line {
       display: flex; justify-content: space-between;
       font-size: 11px; padding: 4px 0;
-      border-bottom: 1px solid #0a0c0e; color: var(--text-muted);
+      border-bottom: 1px solid var(--bg); color: var(--text-muted);
     }
     .diag-cost-line span:last-child { color: var(--accent); }
     .diag-cost-total {
@@ -329,6 +429,50 @@
       font-size: 13px; padding: 8px 0 0; color: var(--text); font-weight: 700;
     }
     .diag-cost-total span:last-child { color: var(--green); }
+
+    /* ── Hardware section ── */
+    #diag-hardware {
+      margin-top: 24px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 3px; padding: 16px;
+    }
+    #diag-hardware h3 {
+      color: var(--accent); font-size: 11px; letter-spacing: .15em;
+      text-transform: uppercase; margin-bottom: 12px;
+    }
+    .hw-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 8px;
+    }
+    .hw-card {
+      background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: 3px; padding: 10px 12px;
+    }
+    .hw-label { font-size: 9px; color: var(--text-dim); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 4px; }
+    .hw-value { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .hw-note  { font-size: 10px; color: var(--text-muted); }
+    .hw-pass  .hw-value { color: var(--green); }
+    .hw-warn  .hw-value { color: var(--yellow); }
+    .hw-fail  .hw-value { color: var(--red); }
+
+    /* ── Latency section ── */
+    #diag-latency {
+      margin-top: 16px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 3px; padding: 16px;
+    }
+    #diag-latency h3 {
+      color: var(--accent); font-size: 11px; letter-spacing: .15em;
+      text-transform: uppercase; margin-bottom: 12px;
+    }
+    .lat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid var(--bg); font-size: 11px;
+    }
+    .lat-label { color: var(--text-muted); }
+    .lat-value { font-weight: 700; }
+    .lat-good  { color: var(--green); }
+    .lat-ok    { color: var(--yellow); }
+    .lat-poor  { color: var(--red); }
+    .lat-none  { color: var(--text-dim); }
   `;
   document.head.appendChild(style);
 
@@ -369,29 +513,34 @@
     document.getElementById("diag-running").style.display = "block";
     document.getElementById("diag-results").style.display = "none";
 
-    const results = [];
-    for (const op of OPERATIONS) {
-      let status = "pending";
-      if (op.notYet) {
-        status = "notyet";
-      } else {
-        try {
-          const result = await Promise.race([
-            Promise.resolve().then(() => op.test()),
-            new Promise(r => setTimeout(() => r(false), 6000))
-          ]);
-          status = result ? "pass" : "fail";
-        } catch {
-          status = "fail";
+    // Run operation tests and hardware profile in parallel
+    const [results, hwProfile] = await Promise.all([
+      // Operation tests
+      Promise.all(OPERATIONS.map(async (op) => {
+        let status = "pending";
+        if (op.notYet) {
+          status = "notyet";
+        } else {
+          try {
+            const result = await Promise.race([
+              Promise.resolve().then(() => op.test()),
+              new Promise(r => setTimeout(() => r(false), 6000))
+            ]);
+            status = result ? "pass" : "fail";
+          } catch {
+            status = "fail";
+          }
         }
-      }
-      results.push({ ...op, status });
-    }
+        return { ...op, status };
+      })),
+      // Hardware profile
+      getHardwareProfile(),
+    ]);
 
-    renderResults(results);
+    renderResults(results, hwProfile);
   }
 
-  function renderResults(results) {
+  function renderResults(results, hwProfile) {
     document.getElementById("diag-running").style.display = "none";
     const el = document.getElementById("diag-results");
     el.style.display = "block";
@@ -402,17 +551,16 @@
     const paid   = results.filter(r => !r.free).length;
     const free   = results.filter(r => r.free).length;
 
-    const current  = results.filter(r => !r.notYet);
-    const future   = results.filter(r => r.notYet);
+    const current = results.filter(r => !r.notYet);
+    const future  = results.filter(r => r.notYet);
 
-    const statusIcon = { pass: "✅", fail: "❌", warn: "⚠️", notyet: "🔜", pending: "⏳" };
+    const statusIcon  = { pass: "✅", fail: "❌", warn: "⚠️", notyet: "🔜", pending: "⏳" };
     const statusLabel = { pass: "Pass", fail: "Fail", warn: "Warn", notyet: "Future", pending: "..." };
 
     function renderRow(op) {
       const costHtml = op.paidCost
         ? `<div class="diag-cost-paid">⚠ Paid</div><div class="diag-cost-sub">${op.paidCost}</div>`
         : `<div class="diag-cost-free">✓ Free</div><div class="diag-cost-sub">${op.freeTier || "—"}</div>`;
-
       return `
         <div class="diag-row">
           <div class="diag-icon">${statusIcon[op.status] || "⏳"}</div>
@@ -427,6 +575,28 @@
       `;
     }
 
+    // Hardware section
+    const hwRatings = rateHardware(hwProfile);
+    const hwHtml = hwRatings.map(r => `
+      <div class="hw-card hw-${r.grade}">
+        <div class="hw-label">${r.label}</div>
+        <div class="hw-value">${r.value}</div>
+        <div class="hw-note">${r.note}</div>
+      </div>
+    `).join("");
+
+    // Latency section — read from LocationModule if available
+    const latency      = window._diagLatency || null;
+    const latencyClass = !latency ? "lat-none"
+                       : latency < 100  ? "lat-good"
+                       : latency < 300  ? "lat-ok"
+                       : "lat-poor";
+    const latencyText  = latency ? latency + "ms" : "—  (stream not active)";
+    const networkMode  = window.ModuleA ? ModuleA.getNetworkMode() : null;
+    const networkText  = networkMode === "local" ? "Local P2P"
+                       : networkMode === "relay"  ? "TURN Relay"
+                       : "—";
+
     el.innerHTML = `
       <div id="diag-summary">
         <div class="diag-sum-card pass"><div class="diag-sum-num">${pass}</div><div class="diag-sum-label">Passing</div></div>
@@ -436,22 +606,46 @@
         <div class="diag-sum-card cost"><div class="diag-sum-num">${paid}</div><div class="diag-sum-label">Paid ops</div></div>
       </div>
 
-      <div class="diag-section-title">Current Operations (M1)</div>
+      <div class="diag-section-title">Current Operations</div>
       ${current.map(renderRow).join("")}
 
-      <div class="diag-section-title">Future Operations (M2–M7)</div>
+      <div class="diag-section-title">Future Operations (M3–M7)</div>
       ${future.map(renderRow).join("")}
 
+      <div id="diag-hardware">
+        <h3>🖥 Hardware Capability — ${hwProfile.isMobile ? "📱 Mobile" : "💻 Desktop"}</h3>
+        <div class="hw-grid">${hwHtml}</div>
+      </div>
+
+      <div id="diag-latency">
+        <h3>⚡ Latency & Network</h3>
+        <div class="lat-row">
+          <span class="lat-label">End-to-end stream latency</span>
+          <span class="lat-value ${latencyClass}">${latencyText}</span>
+        </div>
+        <div class="lat-row">
+          <span class="lat-label">Network path</span>
+          <span class="lat-value">${networkText}</span>
+        </div>
+        <div class="lat-row">
+          <span class="lat-label">Latency guide</span>
+          <span class="lat-value" style="color:var(--text-muted);font-weight:normal">
+            &lt;100ms good · 100–300ms ok · &gt;300ms poor
+          </span>
+        </div>
+      </div>
+
       <div id="diag-cost-summary">
-        <h3>💰 Production Cost Estimate (M1 current state)</h3>
+        <h3>💰 Production Cost Estimate (M1–M2)</h3>
         <div class="diag-cost-line"><span>Frontend Hosting (GitHub Pages)</span><span>$0 / month</span></div>
-        <div class="diag-cost-line"><span>PeerJS Signaling (Render.com free)</span><span>$0 / month*</span></div>
-        <div class="diag-cost-line"><span>TURN Relay (Open Relay free tier)</span><span>$0 / month*</span></div>
+        <div class="diag-cost-line"><span>WebRTC Signaling (Render.com free)</span><span>$0 / month*</span></div>
+        <div class="diag-cost-line"><span>TURN Relay (Metered.ca free tier)</span><span>$0 / month*</span></div>
         <div class="diag-cost-line"><span>WebRTC P2P Video</span><span>$0 / month</span></div>
-        <div class="diag-cost-total"><span>Total (M1)</span><span>$0 / month</span></div>
-        <div style="margin-top:10px;font-size:10px;color:#3d4a55;line-height:1.7">
-          * Free tier limits apply. Render.com sleeps after 15min idle ($7/mo to keep always-on).<br>
-          * TURN relay free up to ~20GB/month. Heavy restricted-network use may exceed limit.<br>
+        <div class="diag-cost-line"><span>GPS + Compass (browser native)</span><span>$0 / month</span></div>
+        <div class="diag-cost-total"><span>Total (M1–M2)</span><span>$0 / month</span></div>
+        <div style="margin-top:10px;font-size:10px;color:var(--text-dim);line-height:1.7">
+          * Render.com free tier sleeps after 15min idle — $7/mo for always-on.<br>
+          * Metered.ca TURN free up to 500MB/month — $0.40/GB after.<br>
           * Production upgrade estimate: $7–15/month for always-on signaling + paid TURN.
         </div>
       </div>

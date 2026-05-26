@@ -190,6 +190,7 @@
       <div class="dbg-stat">ICE: <span id="ds-ice">—</span></div>
       <div class="dbg-stat">Conn: <span id="ds-conn">—</span></div>
       <div class="dbg-stat">Stream: <span id="ds-stream">—</span></div>
+      <div class="dbg-stat">Latency: <span id="ds-latency">—</span></div>
     </div>
   `;
   document.body.appendChild(panel);

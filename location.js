@@ -244,7 +244,29 @@ const LocationModule = (function () {
     channel.onmessage = ({ data }) => {
       try {
         const msg = JSON.parse(data);
-        if (msg.type === "location") _updateOverlay(msg.coords);
+        if (msg.type === "location") {
+          // ── Latency measurement ───────────────────────────────────────────
+          if (msg.timestamp) {
+            const latency = Date.now() - msg.timestamp;
+            window._diagLatency = latency; // exposed for diagnostics.js
+
+            // Log every 10 messages to avoid spam
+            if (!window._latencyLogCount) window._latencyLogCount = 0;
+            if (++window._latencyLogCount % 10 === 0) {
+              _log("Stream latency: " + latency + "ms", "ice");
+            }
+
+            // Update latency in debug status bar if element exists
+            const el = document.getElementById("ds-latency");
+            if (el) {
+              el.textContent = latency + "ms";
+              el.style.color = latency < 100 ? "var(--green)"
+                             : latency < 300 ? "var(--yellow)"
+                             : "var(--red)";
+            }
+          }
+          _updateOverlay(msg.coords);
+        }
       } catch {
         _log("Invalid data channel message", "warn");
       }

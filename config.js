@@ -15,7 +15,7 @@ const CONFIG = {
 
   // ── Signaling Server ─────────────────────────────────────────────────────────
   // Replace with your webrtc-signaling-server Render.com URL after deploy
-  SIGNALING_URL: "wss://YOUR-SIGNALING-SERVER.onrender.com",
+  SIGNALING_URL: "https://webrtc-signaling-server-nxsu.onrender.com",
 
   // ── Camera Constraints ───────────────────────────────────────────────────────
   CAMERA_CONSTRAINTS: {

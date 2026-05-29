@@ -1,0 +1,90 @@
+# ── Construction Cam — Deploy Workflow ───────────────────────────────────────
+# Triggered on every push to main branch.
+# Injects GitHub secrets into config.js placeholders,
+# then deploys to GitHub Pages.
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   SIGNALING_URL     — wss://your-server.onrender.com
+#   TURN_SERVERS      — JSON array of ICE server objects (see .env.example)
+#
+# Optional secrets (add when ready):
+#   METERED_USERNAME  — Metered.ca TURN username
+#   METERED_CREDENTIAL — Metered.ca TURN credential
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages:    write
+  id-token: write
+
+# Only one deployment at a time
+concurrency:
+  group:              "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url:  ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+
+      # ── 1. Checkout repo ──────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Inject secrets into config.js ─────────────────────────────────
+      # Replaces %%PLACEHOLDER%% values with real secrets.
+      # The deployed file contains real values — the source file stays clean.
+      - name: Inject secrets into config.js
+        env:
+          SIGNALING_URL: ${{ secrets.SIGNALING_URL }}
+          TURN_SERVERS:  ${{ secrets.TURN_SERVERS }}
+        run: |
+          # Replace SIGNALING_URL placeholder
+          sed -i "s|%%SIGNALING_URL%%|${SIGNALING_URL}|g" config.js
+
+          # Replace TURN_SERVERS placeholder
+          # TURN_SERVERS secret should be a JSON array string, e.g.:
+          # [{"urls":"turn:standard.relay.metered.ca:80","username":"xxx","credential":"yyy"}]
+          sed -i "s|\"%%TURN_SERVERS%%\"|${TURN_SERVERS}|g" config.js
+
+          echo "✓ Secrets injected into config.js"
+
+      # ── 3. Verify injection (safe — only shows placeholder names) ─────────
+      - name: Verify config.js (no secrets logged)
+        run: |
+          echo "Checking config.js for un-replaced placeholders..."
+          if grep -q "%%" config.js; then
+            echo "⚠ Warning: unreplaced placeholders found in config.js"
+            grep "%%" config.js
+          else
+            echo "✓ All placeholders replaced"
+          fi
+
+      # ── 4. Setup GitHub Pages ─────────────────────────────────────────────
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      # ── 5. Upload site files ──────────────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Upload entire repo root — GitHub Pages serves from here
+          path: "."
+
+      # ── 6. Deploy to GitHub Pages ─────────────────────────────────────────
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

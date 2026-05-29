@@ -1,0 +1,17 @@
+{
+  "name": "construction-cam",
+  "version": "2.0.0",
+  "description": "WebRTC construction camera system — Android sender to desktop viewer",
+  "private": true,
+  "scripts": {
+    "lint": "eslint *.js",
+    "validate": "node scripts/validate-config.js"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "homepage": "https://digi4arch424.github.io/site-eye-webRTC/"
+}

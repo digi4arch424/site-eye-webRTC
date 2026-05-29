@@ -14,8 +14,9 @@ const CONFIG = {
   SITE_ID:    "site-alpha",
 
   // ── Signaling Server ─────────────────────────────────────────────────────────
-  // Replace with your webrtc-signaling-server Render.com URL after deploy
-  SIGNALING_URL: "https://webrtc-signaling-server-nxsu.onrender.com",
+  // Injected by GitHub Actions workflow from SIGNALING_URL secret.
+  // For local development: replace %%SIGNALING_URL%% with your server URL.
+  SIGNALING_URL: "%%SIGNALING_URL%%",
 
   // ── Camera Constraints ───────────────────────────────────────────────────────
   CAMERA_CONSTRAINTS: {
@@ -29,11 +30,12 @@ const CONFIG = {
   },
 
   // ── Network Module Configuration ─────────────────────────────────────────────
-  // turnServers: add Metered.ca credentials here for cross-network streaming
-  // Sign up free at https://dashboard.metered.ca (500MB/month free)
+  // turnServers injected by GitHub Actions workflow from TURN_SERVERS secret.
+  // For local development: replace %%TURN_SERVERS%% with your Metered.ca array.
+  // See .env.example for the expected format.
   NETWORK: {
-    turnServers:  [],
-    providerName: "None — add Metered.ca for cross-network",
+    turnServers:  "%%TURN_SERVERS%%",
+    providerName: "Metered.ca",
     timeouts:     { local: 8000, relay: 15000 },
   },
 

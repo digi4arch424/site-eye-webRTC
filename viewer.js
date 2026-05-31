@@ -18,6 +18,7 @@ let connected = false;
 document.addEventListener("DOMContentLoaded", () => {
   initNetworkModules("viewer");
   LocationModule.init("viewer");
+  MarkersModule.init("viewer");
   // Does not auto-connect — user taps ▶ Connect
 });
 
@@ -90,11 +91,10 @@ function createPeerConnection() {
   pc.addTransceiver("video", { direction: "recvonly" });
   pc.addTransceiver("audio", { direction: "recvonly" });
 
-  // Receive location data channel from sender (M2)
+  // Receive data channels from sender (M2 location, M3 markers)
   pc.ondatachannel = (event) => {
-    if (event.channel.label === "location") {
-      LocationModule.onDataChannel(event);
-    }
+    if (event.channel.label === "location") LocationModule.onDataChannel(event);
+    if (event.channel.label === "markers")  MarkersModule.onDataChannel(event);
   };
 
   // Receive remote tracks — fires with unmuted tracks

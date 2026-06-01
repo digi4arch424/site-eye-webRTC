@@ -34,7 +34,7 @@ const CONFIG = {
   // For local development: replace %%TURN_SERVERS%% with your Metered.ca array.
   // See .env.example for the expected format.
   NETWORK: {
-    turnServers:  "%%TURN_SERVERS%%",
+    turnServers:  [],   // populated by GitHub Actions workflow from TURN_SERVERS secret
     providerName: "Metered.ca",
     timeouts:     { local: 8000, relay: 15000 },
   },
@@ -60,27 +60,23 @@ const CONFIG = {
     // Detection settings
     scanIntervalMs:   200,    // ms between frame scans (5fps detection — low CPU)
     canvasScale:      0.5,    // scale frame before scanning (0.5 = half res, faster)
-    confidenceMin:    0.7,    // minimum confidence to report a marker
 
-    // ArUco dictionary — "ARUCO" or "ARUCO_MIP_36h12"
-    arucoDictionary:  "ARUCO_MIP_36h12",
+    // ── M3: QR code detection only (jsQR) ────────────────────────────────────
+    // ArUco marker detection added at M5 when Vite build system is introduced
+    // and js-aruco2 can be properly bundled as an npm package.
 
-    // Custom labels per marker ID
-    // Key: marker ID string (QR code content or ArUco numeric ID as string)
-    // Value: human-readable label shown on overlay
-    // Add your site markers here
+    // Custom labels per QR code content
+    // Key: exact QR code string content
+    // Value: human-readable label shown on viewer overlay
     labels: {
-      // ArUco examples
-      "0":   "Column A1 — Grid Ref 1.1",
-      "1":   "Column A2 — Grid Ref 1.2",
-      "2":   "Column B1 — Grid Ref 2.1",
-      "3":   "Beam B2 — Level 2",
-      // QR code examples (use QR content as key)
       "SITE-CAM-NORTH":  "North Camera Position",
       "SITE-CAM-SOUTH":  "South Camera Position",
       "SITE-ANCHOR-001": "BIM Anchor Point 001",
+      "SITE-COL-A1":     "Column A1 — Grid Ref 1.1",
+      "SITE-COL-A2":     "Column A2 — Grid Ref 1.2",
+      "SITE-BEAM-B1":    "Beam B1 — Level 2",
     },
 
-    // Default label for unknown markers
+    // Default label for unregistered QR codes
     defaultLabel: "Unknown Marker",
   },

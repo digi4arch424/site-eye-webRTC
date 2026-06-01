@@ -55,12 +55,22 @@ jobs:
           # Replace SIGNALING_URL placeholder
           sed -i "s|%%SIGNALING_URL%%|${SIGNALING_URL}|g" config.js
 
-          # Replace TURN_SERVERS placeholder
-          # TURN_SERVERS secret should be a JSON array string, e.g.:
-          # [{"urls":"turn:standard.relay.metered.ca:80","username":"xxx","credential":"yyy"}]
-          sed -i "s|\"%%TURN_SERVERS%%\"|${TURN_SERVERS}|g" config.js
+          # Replace empty turnServers array with real TURN servers if secret is set
+          if [ -n "${TURN_SERVERS}" ]; then
+            sed -i "s|turnServers:  \[\],   // populated by GitHub Actions workflow from TURN_SERVERS secret|turnServers:  ${TURN_SERVERS},|g" config.js
+            echo "✓ TURN_SERVERS injected"
+          else
+            echo "⚠ TURN_SERVERS secret not set — using empty array (same-network only)"
+          fi
 
-          echo "✓ Secrets injected into config.js"
+          # Replace SIGNALING_URL in config if placeholder exists
+          if grep -q "%%SIGNALING_URL%%" config.js; then
+            echo "⚠ SIGNALING_URL placeholder not replaced — check secret"
+          else
+            echo "✓ SIGNALING_URL injected"
+          fi
+
+          echo "✓ Secret injection complete"
 
       # ── 3. Verify injection (safe — only shows placeholder names) ─────────
       - name: Verify config.js (no secrets logged)

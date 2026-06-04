@@ -14,9 +14,8 @@ const CONFIG = {
   SITE_ID:    "site-alpha",
 
   // ── Signaling Server ─────────────────────────────────────────────────────────
-  // Injected by GitHub Actions workflow from SIGNALING_URL secret.
-  // For local development: replace with your server URL.
-  SIGNALING_URL: "%%SIGNALING_URL%%",
+  // Hardcoded for now — will move back to workflow injection once confirmed working
+  SIGNALING_URL: "wss://webrtc-signaling-server-denf.onrender.com",
 
   // ── Camera Constraints ───────────────────────────────────────────────────────
   CAMERA_CONSTRAINTS: {

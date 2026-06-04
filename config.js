@@ -15,7 +15,7 @@ const CONFIG = {
 
   // ── Signaling Server ─────────────────────────────────────────────────────────
   // Hardcoded for now — will move back to workflow injection once confirmed working
-  SIGNALING_URL: "wss://webrtc-signaling-server-denf.onrender.com",
+  SIGNALING_URL: "https://webrtc-signaling-server-nxsu.onrender.com",
 
   // ── Camera Constraints ───────────────────────────────────────────────────────
   CAMERA_CONSTRAINTS: {

@@ -62,13 +62,14 @@ jobs:
 
           # Inject TURN_SERVERS if secret is set
           if [ -n "${TURN_SERVERS}" ]; then
+            echo "${TURN_SERVERS}" > /tmp/turn_servers.json
             python3 -c "
-import re, sys
+import sys
 content = open('config.js').read()
-turn = sys.argv[1]
+turn = open('/tmp/turn_servers.json').read().strip()
 content = content.replace('turnServers:  [],', 'turnServers:  ' + turn + ',')
 open('config.js', 'w').write(content)
-" "${TURN_SERVERS}"
+"
             echo "✓ TURN_SERVERS injected"
           else
             echo "⚠ TURN_SERVERS secret not set — using empty array (same-network only)"

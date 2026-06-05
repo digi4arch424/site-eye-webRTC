@@ -31,7 +31,13 @@ const CONFIG = {
   // ── Network Module Configuration ─────────────────────────────────────────────
   // turnServers populated by GitHub Actions workflow from TURN_SERVERS secret.
   NETWORK: {
-    turnServers:  [],
+    turnServers:  [
+    { urls: "stun:standard.relay.metered.ca:80" },
+    { urls: "turn:standard.relay.metered.ca:80", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turn:standard.relay.metered.ca:80?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turn:standard.relay.metered.ca:443", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+    { urls: "turns:standard.relay.metered.ca:443?transport=tcp", username: "acc4f2d3ac7a6fa46d774d43", credential: "8P6jfV/svaMof35G" },
+  ],
     providerName: "Metered.ca",
     timeouts:     { local: 8000, relay: 15000 },
   },

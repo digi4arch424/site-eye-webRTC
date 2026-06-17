@@ -44,6 +44,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── PATCH: build Vite bundle ──────────────────────────────────────────
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Vite bundle
+        run: npm run build
+
       # ── 2. Inject secrets into config.js ─────────────────────────────────
       # Replaces %%PLACEHOLDER%% values with real secrets.
       # The deployed file contains real values — the source file stays clean.

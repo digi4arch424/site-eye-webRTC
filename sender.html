@@ -42,6 +42,22 @@
     .settings-actions { display: flex; gap: 8px; margin-top: 4px; }
     .btn-danger { border-color: #ef4444; color: #ef4444; }
     .btn-danger:hover:not(:disabled) { background: #ef4444; color: #fff; border-color: #ef4444; }
+    .btn-secondary {
+      padding: 8px 16px;
+      border-radius: 6px;
+      background: var(--color-bg-secondary, #333);
+      color: var(--color-text-primary, #fff);
+      border: 1px solid var(--color-border, #555);
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn-secondary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .status-label {
+      color: var(--color-text-secondary, #aaa);
+    }
   </style>
 </head>
 <body>
@@ -82,6 +98,17 @@
 
       <div class="controls">
         <button class="btn" id="startBtn">▶ Start Stream</button>
+            <button id="start-ar-btn"
+            class="btn-secondary"
+            style="display:none"
+            aria-label="Start AR spatial tracking">
+              Start AR
+            </button>
+            <span id="vps-status"
+                  class="status-label"
+                  style="display:none; font-size:12px; margin-left:8px;">
+              VPS: —
+            </span>
         <button class="btn btn-danger" id="stopBtn" style="display:none">■ Stop Stream</button>
       </div>
 
@@ -132,6 +159,8 @@
   </div>
 
   <!-- Load order: config → utils → modules → debug → page logic → settings -->
+  <!-- Phase 1: Vite bundle — must load before location.js and markers.js -->
+  <script src="dist/bundle.js"></script>
   <script src="config.js"></script>
   <script src="utils.js"></script>
   <script src="https://digi4arch424.github.io/webrtc-network-modules/module-b.js"></script>
@@ -146,5 +175,48 @@
   <script src="markers.js"></script>
   <script src="sender.js"></script>
   <script src="settings.js"></script>
+  <script>
+  // Phase 1 Track 4: AR button wiring
+  // Runs after DOMContentLoaded — bundle.js is already parsed by this point.
+  document.addEventListener('DOMContentLoaded', async () => {
+
+    const arBtn    = document.getElementById('start-ar-btn');
+    const vpsLabel = document.getElementById('vps-status');
+
+    // Check WebXR capability and show button only if supported
+    if (window.checkVPSSupport) {
+      const cap = await window.checkVPSSupport();
+      if (cap.supported) {
+        arBtn.style.display = '';
+        vpsLabel.style.display = '';
+      } else {
+        console.warn('[sender.html] VPS not supported:', cap.reason);
+        vpsLabel.style.display = '';
+        vpsLabel.textContent = 'VPS: unsupported on this device';
+      }
+    }
+
+    // Clicking "Start AR" initialises the VPS provider via LocationTracker
+    // LocationTracker exposes _initVPS() as a public method after the
+    // location.js patch is applied. Replace 'locationTracker' with whatever
+    // your location.js module's exported/global instance is named.
+    arBtn.addEventListener('click', async () => {
+      arBtn.disabled = true;
+      vpsLabel.textContent = 'VPS: Starting…';
+      try {
+        // 'locationTracker' = the instance variable used in your location.js
+        // Common alternatives: window.locationModule, window.loc, _locationTracker
+        await locationTracker._initVPS();
+        vpsLabel.textContent = 'VPS: Active';
+        arBtn.style.display = 'none';
+      } catch (err) {
+        console.error('[sender.html] VPS start failed:', err);
+        vpsLabel.textContent = 'VPS: Failed — ' + err.message;
+        arBtn.disabled = false;
+      }
+    });
+
+  });
+  </script>
 </body>
 </html>

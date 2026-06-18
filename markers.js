@@ -1,390 +1,263 @@
 /**
- * markers.js — Visual Marker Detection Module
- * Construction Camera System — M3
+ * markers.js
  *
- * M3: QR code detection only (jsQR)
- * M5: ArUco marker detection added when Vite build system
- *     is introduced and js-aruco2 bundled as npm package.
+ * Detects visual markers in the live camera feed and broadcasts
+ * results to the viewer over the WebRTC data channel.
  *
- * CPU strategy:
- *   - Scans at CONFIG.MARKERS.scanIntervalMs (200ms = 5fps)
- *   - Scales frame to CONFIG.MARKERS.canvasScale (0.5 = half res)
- *   - Pauses when page is hidden (visibilitychange)
+ * ── Phase history ─────────────────────────────────────────────────────
  *
- * Data channel message format:
- * {
- *   type:      "markers",
- *   timestamp: 1712345678000,
- *   markers: [
- *     {
- *       id:      "SITE-COL-A1",
- *       kind:    "qr",
- *       label:   "Column A1 — Grid Ref 1.1",
- *       corners: [{ x, y }, { x, y }, { x, y }, { x, y }],
- *       center:  { x, y },
- *       // Future placeholders
- *       pose3d:   null,   // M5 — Multiset VPS 6-DoF pose
- *       anchorId: null,   // M5 — Multiset spatial anchor
- *       bimRef:   null,   // M6 — BIM element reference
- *     }
- *   ]
- * }
+ * Phase 0 (M3):  QR code detection via jsQR
+ * Phase 1 T1:    ArUco marker detection via ArucoDetector (Vite bundle)
+ * Phase 1 T2:    ArUco markers + data channel expansion
+ *
+ * ── Dependencies ──────────────────────────────────────────────────────
+ *
+ * window.jsQR                  — Phase 0, loaded via CDN in sender.html
+ * window.ArucoDetector         — Phase 1, from dist/bundle.js
+ * sendDataChannel(payload)     — Phase 0 WebRTC global
+ *
+ * ── Public interface ──────────────────────────────────────────────────
+ *
+ *   markerDetector.start(videoEl)  — begin detection on given video
+ *   markerDetector.stop()          — stop all detection + release resources
+ *
+ * window.markerDetector is assigned at the bottom of this file.
  */
 
-const MarkersModule = (function () {
+/* global jsQR, sendDataChannel */
 
-  // ── State ─────────────────────────────────────────────────────────────────────
-  let _role           = null;
-  let _dataChannel    = null;
-  let _videoEl        = null;
-  let _scanCanvas     = null;
-  let _scanCtx        = null;
-  let _overlayCanvas  = null;
-  let _overlayCtx     = null;
-  let _active         = false;
-  let _scanTimer      = null;
-  let _overlayVisible = false;
-  let _lastMarkers    = [];
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
 
-  // ── Init ──────────────────────────────────────────────────────────────────────
-  function init(role) {
-    _role = role;
+/**
+ * Detection interval in ms.
+ * 150 ms ≈ 6–7 Hz — balances marker responsiveness against CPU/battery load.
+ * Lower values (e.g. 100 ms) increase responsiveness at higher CPU cost.
+ */
+const DETECT_INTERVAL_MS = 150;
 
-    if (role === "sender") _injectSenderIndicator();
-    if (role === "viewer") {
-      _injectViewerOverlay();
-      _injectToggleButton();
-    }
+/**
+ * Minimum ms between repeated sends of the same QR code.
+ * Prevents the data channel from being flooded when a QR is held in frame.
+ */
+const QR_DEDUP_MS = 1500;
 
-    // Pause when tab hidden — saves phone battery
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) _pauseScan();
-      else if (_active)    _resumeScan();
-    });
 
-    // Check jsQR loaded
-    if (typeof jsQR === "undefined") {
-      _log("jsQR not loaded — QR detection unavailable", "warn");
-    } else {
-      _log("jsQR ready ✓");
-    }
+// ─────────────────────────────────────────────────────────────────────────────
+// MarkerDetector
+// ─────────────────────────────────────────────────────────────────────────────
 
-    _log("Markers module initialised — role: " + role);
+class MarkerDetector {
+  constructor() {
+    // ── Canvas for QR detection (jsQR needs raw ImageData) ────────────────
+    /** @type {HTMLCanvasElement|null} */
+    this._canvas      = null;
+    /** @type {CanvasRenderingContext2D|null} */
+    this._ctx         = null;
+    /** @type {HTMLVideoElement|null} */
+    this._video       = null;
+
+    // ── Loop ──────────────────────────────────────────────────────────────
+    this._intervalId  = null;
+    this._running     = false;
+
+    // ── Phase 0: QR dedup ──────────────────────────────────────────────────
+    /** @type {string|null} Last QR string sent, for dedup */
+    this._lastQRData  = null;
+    /** @type {number} Timestamp of last QR send */
+    this._lastQRSent  = 0;
+
+    // ── Phase 1 T1: ArUco detector ────────────────────────────────────────
+    /**
+     * ArucoDetector instance — created lazily once the Vite bundle signals
+     * ready via 'bim:bundle:ready'. If the bundle loaded before this script,
+     * the class is available immediately.
+     * @type {InstanceType<typeof ArucoDetector>|null}
+     */
+    this._aruco = null;
   }
 
-  // ── Start / stop ──────────────────────────────────────────────────────────────
-  function startScanning(videoElement) {
-    if (_role !== "sender") return;
-    if (typeof jsQR === "undefined") {
-      _log("jsQR not available — skipping scan start", "warn");
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Begin marker detection on the given video element.
+   * @param {HTMLVideoElement} videoEl  — the live camera stream (localVideo)
+   */
+  start(videoEl) {
+    if (this._running) return;
+
+    this._video  = videoEl;
+    this._canvas = document.createElement('canvas');
+    this._ctx    = this._canvas.getContext('2d', { willReadFrequently: true });
+
+    // Phase 1 T1: initialise ArUco detector
+    this._initAruco();
+
+    this._running    = true;
+    this._intervalId = setInterval(() => this._detect(), DETECT_INTERVAL_MS);
+
+    console.log('[MarkerDetector] Started — QR (jsQR) + ArUco (Phase 1) active');
+  }
+
+  /**
+   * Stop detection and release all resources.
+   * Safe to call multiple times.
+   */
+  stop() {
+    if (!this._running) return;
+
+    clearInterval(this._intervalId);
+    this._intervalId = null;
+    this._running    = false;
+
+    // Phase 1 T1: release ArucoDetector canvas
+    if (this._aruco) {
+      this._aruco.destroy();
+      this._aruco = null;
+    }
+
+    this._canvas     = null;
+    this._ctx        = null;
+    this._video      = null;
+    this._lastQRData = null;
+    this._lastQRSent = 0;
+
+    console.log('[MarkerDetector] Stopped.');
+  }
+
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 1 T1 — ArUco init
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _initAruco() {
+    if (window.ArucoDetector) {
+      // Bundle already loaded — create immediately
+      this._aruco = new window.ArucoDetector();
       return;
     }
-    _videoEl = videoElement;
-    _active  = true;
-    _scanCanvas = document.createElement("canvas");
-    _scanCtx    = _scanCanvas.getContext("2d", { willReadFrequently: true });
-    _scheduleScan();
-    _log("QR scanning started");
-  }
 
-  function stopScanning() {
-    _active = false;
-    if (_scanTimer) { clearTimeout(_scanTimer); _scanTimer = null; }
-    _clearSenderIndicator();
-    _log("QR scanning stopped");
-  }
-
-  function _pauseScan() {
-    if (_scanTimer) { clearTimeout(_scanTimer); _scanTimer = null; }
-  }
-
-  function _resumeScan() {
-    if (_active && !_scanTimer) _scheduleScan();
-  }
-
-  function _scheduleScan() {
-    if (!_active) return;
-    _scanTimer = setTimeout(() => {
-      _scanFrame();
-      _scheduleScan();
-    }, CONFIG.MARKERS.scanIntervalMs);
-  }
-
-  // ── Frame scanning ────────────────────────────────────────────────────────────
-  function _scanFrame() {
-    if (!_videoEl || _videoEl.readyState < 2) return;
-    const vw = _videoEl.videoWidth;
-    const vh = _videoEl.videoHeight;
-    if (!vw || !vh) return;
-
-    const scale = CONFIG.MARKERS.canvasScale;
-    const sw    = Math.floor(vw * scale);
-    const sh    = Math.floor(vh * scale);
-
-    _scanCanvas.width  = sw;
-    _scanCanvas.height = sh;
-    _scanCtx.drawImage(_videoEl, 0, 0, sw, sh);
-
-    const imageData = _scanCtx.getImageData(0, 0, sw, sh);
-    const found     = [];
-
-    // ── QR detection ─────────────────────────────────────────────────────────
-    try {
-      const qr = jsQR(imageData.data, sw, sh, {
-        inversionAttempts: "dontInvert",
-      });
-      if (qr) {
-        const corners = [
-          qr.location.topLeftCorner,
-          qr.location.topRightCorner,
-          qr.location.bottomRightCorner,
-          qr.location.bottomLeftCorner,
-        ].map(c => ({
-          x: Math.round(c.x / scale),
-          y: Math.round(c.y / scale),
-        }));
-
-        found.push({
-          id:       qr.data,
-          kind:     "qr",
-          label:    _getLabel(qr.data),
-          corners,
-          center:   _centroid(corners),
-          // Future placeholders (M5, M6)
-          pose3d:   null,
-          anchorId: null,
-          bimRef:   null,
-        });
-
-        _log("QR detected: " + qr.data);
+    // Bundle not yet loaded — wait for the ready signal dispatched by main.js
+    document.addEventListener('bim:bundle:ready', () => {
+      if (this._running && !this._aruco && window.ArucoDetector) {
+        this._aruco = new window.ArucoDetector();
+        console.log('[MarkerDetector] ArucoDetector initialised after bundle ready');
       }
-    } catch (e) {
-      _log("QR scan error: " + e.message, "warn");
+    }, { once: true });
+  }
+
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Detection loop
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _detect() {
+    if (!this._video || !this._ctx) return;
+
+    const w = this._video.videoWidth;
+    const h = this._video.videoHeight;
+    if (!w || !h || this._video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) return;
+
+    // Resize canvas to match actual frame dimensions
+    if (this._canvas.width !== w || this._canvas.height !== h) {
+      this._canvas.width  = w;
+      this._canvas.height = h;
     }
 
-    // ── ArUco placeholder (M5) ────────────────────────────────────────────────
-    // ArUco detection added at M5 using js-aruco2 via Vite npm bundle.
-    // window.dispatchEvent(new CustomEvent("aruco-ready")) will trigger init.
+    // Phase 0: QR detection — needs ImageData on a canvas we control
+    this._ctx.drawImage(this._video, 0, 0, w, h);
+    this._detectQR(w, h);
 
-    if (found.length > 0) {
-      _updateSenderIndicator(found);
-      _transmit(found);
-    } else {
-      _clearSenderIndicator();
+    // Phase 1 T1+T2: ArUco detection — ArucoDetector manages its own canvas
+    this._detectAruco();
+  }
+
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 0 — QR code detection (jsQR)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _detectQR(w, h) {
+    if (typeof jsQR !== 'function') return;
+
+    let imageData;
+    try {
+      imageData = this._ctx.getImageData(0, 0, w, h);
+    } catch (_e) {
+      return; // cross-origin guard or context lost
     }
-  }
 
-  // ── Data channel ──────────────────────────────────────────────────────────────
-  function attachDataChannel(channel) {
-    _dataChannel = channel;
-    _log("Markers data channel attached");
-    channel.onopen  = () => _log("Markers data channel open ✓", "success");
-    channel.onclose = () => _log("Markers data channel closed", "warn");
-    channel.onerror = (e) => _log("Markers data channel error: " + e.message, "error");
-  }
+    const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+    if (!code) return;
 
-  function onDataChannel(event) {
-    if (event.channel.label !== "markers") return;
-    const channel = event.channel;
-    _log("Markers data channel received");
+    const now = Date.now();
 
-    channel.onmessage = ({ data }) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "markers") {
-          _lastMarkers = msg.markers;
-          _drawOverlay(msg.markers);
-          // Dispatch for future modules (M5 VPS, M6 BIM)
-          window.dispatchEvent(new CustomEvent("markers-update", { detail: msg.markers }));
-        }
-      } catch { _log("Invalid markers message", "warn"); }
-    };
-
-    channel.onopen  = () => _log("Markers data channel open (viewer) ✓", "success");
-    channel.onclose = () => { _log("Markers data channel closed", "warn"); _clearOverlay(); };
-  }
-
-  function _transmit(markers) {
-    if (!_dataChannel || _dataChannel.readyState !== "open") return;
-    _dataChannel.send(JSON.stringify({
-      type:      "markers",
-      timestamp: Date.now(),
-      markers,
-    }));
-  }
-
-  // ── Sender indicator ──────────────────────────────────────────────────────────
-  function _injectSenderIndicator() {
-    const panel = document.querySelector(".video-panel");
-    if (!panel) return;
-    const el    = document.createElement("div");
-    el.id       = "marker-indicator";
-    el.style.cssText = `
-      display: none; position: absolute; top: 36px; left: 10px; z-index: 5;
-      background: rgba(0,0,0,0.65); border: 1px solid rgba(34,197,94,0.5);
-      border-radius: var(--radius,4px); padding: 4px 10px;
-      font-family: var(--mono,monospace); font-size: 10px;
-      color: var(--green,#22c55e); pointer-events: none;
-    `;
-    el.textContent = "◉ QR detected";
-    panel.appendChild(el);
-  }
-
-  function _updateSenderIndicator(markers) {
-    const el = document.getElementById("marker-indicator");
-    if (!el) return;
-    el.style.display = "block";
-    el.textContent   = "◉ " + markers.length + " QR code" + (markers.length > 1 ? "s" : "") + " detected";
-  }
-
-  function _clearSenderIndicator() {
-    const el = document.getElementById("marker-indicator");
-    if (el) el.style.display = "none";
-  }
-
-  // ── Viewer overlay ────────────────────────────────────────────────────────────
-  function _injectViewerOverlay() {
-    const wrap = document.querySelector(".video-wrap");
-    if (!wrap) return;
-    _overlayCanvas           = document.createElement("canvas");
-    _overlayCanvas.id        = "marker-overlay-canvas";
-    _overlayCanvas.style.cssText = `
-      position: absolute; inset: 0; width: 100%; height: 100%;
-      pointer-events: none; z-index: 6; display: none;
-    `;
-    wrap.appendChild(_overlayCanvas);
-    _overlayCtx = _overlayCanvas.getContext("2d");
-    const ro    = new ResizeObserver(() => _resizeOverlayCanvas());
-    ro.observe(wrap);
-  }
-
-  function _resizeOverlayCanvas() {
-    const wrap = document.querySelector(".video-wrap");
-    if (!wrap || !_overlayCanvas) return;
-    _overlayCanvas.width  = wrap.clientWidth;
-    _overlayCanvas.height = wrap.clientHeight;
-    if (_lastMarkers.length > 0) _drawOverlay(_lastMarkers);
-  }
-
-  function _injectToggleButton() {
-    const controls = document.querySelector(".controls");
-    if (!controls) return;
-    const btn       = document.createElement("button");
-    btn.id          = "markers-toggle-btn";
-    btn.className   = "btn";
-    btn.textContent = "◉ Markers";
-    btn.addEventListener("click", toggleOverlay);
-    controls.appendChild(btn);
-  }
-
-  function toggleOverlay() {
-    _overlayVisible = !_overlayVisible;
-    if (_overlayCanvas) _overlayCanvas.style.display = _overlayVisible ? "block" : "none";
-    const btn = document.getElementById("markers-toggle-btn");
-    if (btn) {
-      btn.style.color       = _overlayVisible ? "var(--green)" : "";
-      btn.style.borderColor = _overlayVisible ? "var(--green)" : "";
+    // Dedup: suppress re-send of the same code within QR_DEDUP_MS
+    if (code.data === this._lastQRData && (now - this._lastQRSent) < QR_DEDUP_MS) {
+      return;
     }
-    if (_overlayVisible && _lastMarkers.length > 0) _drawOverlay(_lastMarkers);
-    else _clearOverlay();
-  }
 
-  function _drawOverlay(markers) {
-    if (!_overlayCtx || !_overlayVisible) return;
-    const cw    = _overlayCanvas.width;
-    const ch    = _overlayCanvas.height;
-    _overlayCtx.clearRect(0, 0, cw, ch);
+    this._lastQRData = code.data;
+    this._lastQRSent = now;
 
-    const video = document.getElementById("remoteVideo");
-    if (!video || !video.videoWidth) return;
+    console.log('[MarkerDetector] QR code:', code.data);
 
-    const scaleX = cw / video.videoWidth;
-    const scaleY = ch / video.videoHeight;
-
-    markers.forEach(m => {
-      const corners = m.corners.map(c => ({
-        x: c.x * scaleX,
-        y: c.y * scaleY,
-      }));
-      const center = { x: m.center.x * scaleX, y: m.center.y * scaleY };
-
-      // Bounding box
-      _overlayCtx.strokeStyle = "#f59e0b";
-      _overlayCtx.lineWidth   = 2;
-      _overlayCtx.beginPath();
-      _overlayCtx.moveTo(corners[0].x, corners[0].y);
-      corners.forEach(c => _overlayCtx.lineTo(c.x, c.y));
-      _overlayCtx.closePath();
-      _overlayCtx.stroke();
-
-      // Corner dots
-      corners.forEach(c => {
-        _overlayCtx.fillStyle = "#f59e0b";
-        _overlayCtx.beginPath();
-        _overlayCtx.arc(c.x, c.y, 4, 0, Math.PI * 2);
-        _overlayCtx.fill();
-      });
-
-      // Label box
-      const labelText = m.label || m.id;
-      const idText    = "[QR] " + m.id.slice(0, 20) + (m.id.length > 20 ? "…" : "");
-      _overlayCtx.font = "11px 'Share Tech Mono', monospace";
-      const labelW    = Math.max(
-        _overlayCtx.measureText(labelText).width,
-        _overlayCtx.measureText(idText).width
-      ) + 16;
-      const labelH    = 40;
-      const labelX    = Math.min(Math.max(center.x - labelW / 2, 4), cw - labelW - 4);
-      const labelY    = Math.max(center.y - 50, 4);
-
-      _overlayCtx.fillStyle = "rgba(0,0,0,0.75)";
-      _overlayCtx.fillRect(labelX, labelY, labelW, labelH);
-      _overlayCtx.strokeStyle = "#f59e0b";
-      _overlayCtx.lineWidth   = 1;
-      _overlayCtx.strokeRect(labelX, labelY, labelW, labelH);
-
-      _overlayCtx.fillStyle = "#f59e0b";
-      _overlayCtx.font      = "10px 'Share Tech Mono', monospace";
-      _overlayCtx.fillText(idText, labelX + 8, labelY + 14);
-
-      _overlayCtx.fillStyle = "#d4dde6";
-      _overlayCtx.font      = "bold 11px 'Share Tech Mono', monospace";
-      _overlayCtx.fillText(labelText, labelX + 8, labelY + 30);
+    if (typeof sendDataChannel !== 'function') return;
+    sendDataChannel({
+      type:      'qr-code',
+      data:      code.data,
+      corners:   {
+        topLeft:     code.location.topLeftCorner,
+        topRight:    code.location.topRightCorner,
+        bottomRight: code.location.bottomRightCorner,
+        bottomLeft:  code.location.bottomLeftCorner,
+      },
+      timestamp: now,
     });
   }
 
-  function _clearOverlay() {
-    if (_overlayCtx && _overlayCanvas) {
-      _overlayCtx.clearRect(0, 0, _overlayCanvas.width, _overlayCanvas.height);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 1 T1+T2 — ArUco marker detection
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _detectAruco() {
+    if (!this._aruco || !this._video) return;
+
+    // ArucoDetector.detect() draws the video to its own offscreen canvas
+    // internally — we pass the video element directly.
+    let markers;
+    try {
+      markers = this._aruco.detect(this._video);
+    } catch (err) {
+      console.warn('[MarkerDetector] ArUco detection error:', err);
+      return;
     }
+
+    if (!markers.length) return;
+
+    // Phase 1 T2: broadcast ArUco results on a separate message type so
+    // the viewer can distinguish them from QR codes.
+    if (typeof sendDataChannel !== 'function') return;
+    sendDataChannel({
+      type:      'aruco-markers',
+      markers,            // [{ id: number, corners: [{x,y}×4], center: {x,y} }]
+      timestamp: Date.now(),
+    });
   }
+}
 
-  // ── Helpers ───────────────────────────────────────────────────────────────────
-  function _getLabel(id) {
-    return CONFIG.MARKERS.labels[id] || CONFIG.MARKERS.defaultLabel;
-  }
 
-  function _centroid(corners) {
-    return {
-      x: Math.round(corners.reduce((s, c) => s + c.x, 0) / corners.length),
-      y: Math.round(corners.reduce((s, c) => s + c.y, 0) / corners.length),
-    };
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Singleton
+// ─────────────────────────────────────────────────────────────────────────────
 
-  function _log(msg, type) {
-    if (window.debugLog) window.debugLog("Markers: " + msg, type || "info");
-    else console.log("[Markers]", msg);
-  }
-
-  // ── Public API ────────────────────────────────────────────────────────────────
-  return {
-    init,
-    startScanning,
-    stopScanning,
-    attachDataChannel,
-    onDataChannel,
-    toggleOverlay,
-    getLastMarkers: () => [..._lastMarkers],
-  };
-
-})();
+/**
+ * Global singleton referenced by sender.html:
+ *   markerDetector.start(localVideo)
+ *   markerDetector.stop()
+ */
+window.markerDetector = new MarkerDetector();

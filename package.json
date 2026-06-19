@@ -1,17 +1,26 @@
 {
-  "name": "construction-cam",
-  "version": "2.0.0",
-  "description": "WebRTC construction camera system — Android sender to desktop viewer",
+  "name": "bim-construction-camera",
   "private": true,
+  "version": "1.0.0",
+  "description": "Browser-first BIM construction camera — Phase 1 Vite bundle",
+  "type": "module",
   "scripts": {
-    "lint": "eslint *.js",
-    "validate": "node scripts/validate-config.js"
+    "dev":     "vite",
+    "build":   "vite build",
+    "preview": "vite preview",
+    "lint":    "eslint src/",
+    "format":  "prettier --write src/"
+  },
+  "dependencies": {
+    "js-aruco2": "^1.1.0"
   },
   "devDependencies": {
-    "eslint": "^8.57.0"
+    "vite":                  "^5.2.0",
+    "eslint":                "^8.57.0",
+    "eslint-config-prettier":"^9.1.0",
+    "prettier":              "^3.2.5"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "homepage": "https://digi4arch424.github.io/site-eye-webRTC/"
+  }
 }

@@ -1,10 +1,11 @@
 /**
- * location.js — GPS + Compass Metadata Module
- * Construction Camera System — M2
+ * location.js — GPS + Compass + VPS Metadata Module
+ * Construction Camera System — M2 (+ Phase 1 Track 1 / Track 4 patch)
  *
- * Captures GPS coordinates and compass heading from the sender device.
- * Transmits to viewer via WebRTC data channel alongside the video stream.
- * Displays as a toggleable overlay on the video panel on both sender and viewer.
+ * Captures GPS coordinates, compass heading, device pitch/roll, and (Track 4)
+ * VPS 6-DoF pose from the sender device. Transmits to viewer via WebRTC data
+ * channel alongside the video stream. Displays as a toggleable overlay on the
+ * video panel on both sender and viewer.
  *
  * All tuneable values live in CONFIG.GPS (config.js) — no magic numbers here.
  *
@@ -16,15 +17,21 @@
  *   Low-pass filter  — smooths sensor noise, handles 355°→5° wrap-around
  *   Deadband         — suppresses micro-fluctuations below CONFIG.GPS.deadbandDegrees
  *
- * Current (M2):
+ * createVPSProvider() and checkVPSSupport() are exposed on window by the Vite
+ * bundle's src/main.js (see src/vps-config.js). Phase 1 resolves to a
+ * WebXRProvider with no Multiset API key required; swapping to MultisetProvider
+ * in Phase 2 is a two-line change inside vps-config.js, not in this file.
+ *
+ * Current (M2 + Track 1 + Track 4):
  *   - GPS coordinates (lat/lng)
  *   - Compass heading (degrees + cardinal point)
  *   - Accuracy (metres)
+ *   - Pitch / roll (degrees, from DeviceOrientationEvent beta/gamma)
+ *   - VPS pose (position + confidence, from the active VPSProvider — Phase 1: WebXR)
  *
  * Placeholder slots for future milestones:
- *   - altitude        (M3 — AR marker anchoring)
- *   - speed           (M4 — site movement tracking)
- *   - pitch / roll    (M5 — Multiset VPS 6-DoF)
+ *   - altitude        (M3 — AR marker anchoring; already captured, not yet displayed)
+ *   - speed           (M4 — site movement tracking; already captured, not yet displayed)
  *   - siteAnchorId    (M5 — Multiset spatial anchor)
  *   - bimElementId    (M6 — BIM overlay target)
  *
@@ -37,12 +44,16 @@
  *     lng:         133.7751,
  *     accuracy:    5.2,
  *     heading:     247,
+ *     pitch:       -3.2,   // Track 1
+ *     roll:        1.1,    // Track 1
  *     altitude:    null,   // M3
  *     speed:       null,   // M4
- *     pitch:       null,   // M5
- *     roll:        null,   // M5
  *     siteAnchorId: null,  // M5
  *     bimElementId: null,  // M6
+ *   },
+ *   vpsPose: {             // Track 4 — null until the VPS provider localises
+ *     position:   { x: 0.12, y: 1.6, z: -0.4 },
+ *     confidence: 0.92,
  *   }
  * }
  */
@@ -52,6 +63,12 @@ const LocationModule = (function () {
   // ── Read all tuneable values from CONFIG.GPS ──────────────────────────────────
   // No magic numbers in this file — all values come from config.js
   function _cfg() { return CONFIG.GPS; }
+
+  // Track 4: VPS pose considered "confident" at/above this threshold (✓ vs ~ in overlay)
+  const _VPS_CONFIDENCE_OK = 0.8;
+  // Track 4: VPS poll rate — WebXR frame callbacks run faster than this is useful
+  // for an overlay/data-channel update, so we poll at a fixed ~30Hz instead.
+  const _VPS_POLL_MS = 33;
 
   // ── State ─────────────────────────────────────────────────────────────────────
   let _dataChannel      = null;
@@ -66,6 +83,12 @@ const LocationModule = (function () {
   // Heading smoothing state
   let _smoothedHeading  = null;
   let _displayedHeading = null;
+
+  // Track 4: VPS provider lifecycle state
+  let _vpsProvider = null;   // VPSProvider instance (Phase 1: WebXRProvider)
+  let _vpsPollId   = null;   // setInterval handle for the getPose() loop
+  let _lastVPSPose = null;   // most recent VPSPose — own pose (sender) or received pose (viewer)
+  let _vpsReady    = false;  // true once the provider's init() resolves
 
   // Last known position
   let _lastCoords = {
@@ -208,6 +231,13 @@ const LocationModule = (function () {
 
     const rounded = Math.round(_smoothedHeading);
 
+    // ── Track 1: pitch / roll ─────────────────────────────────────────────────
+    // beta  = front-back tilt (pitch), gamma = left-right tilt (roll).
+    // No smoothing applied here — these ride along with the heading-gated
+    // update below so overlay/transmit cadence doesn't change.
+    if (e.beta  !== null && e.beta  !== undefined) _lastCoords.pitch = e.beta;
+    if (e.gamma !== null && e.gamma !== undefined) _lastCoords.roll  = e.gamma;
+
     // ── Deadband — only update if change exceeds threshold ───────────────────
     if (_displayedHeading === null ||
         Math.abs(rounded - _displayedHeading) >= _cfg().deadbandDegrees) {
@@ -266,6 +296,13 @@ const LocationModule = (function () {
             }
           }
           _updateOverlay(msg.coords);
+
+          // Track 4: viewer has no VPSProvider of its own — just display
+          // whatever pose the sender included in this message.
+          if ("vpsPose" in msg) {
+            _lastVPSPose = msg.vpsPose;
+            _updateVPSOverlay();
+          }
         }
       } catch {
         _log("Invalid data channel message", "warn");
@@ -282,6 +319,7 @@ const LocationModule = (function () {
       type:      "location",
       timestamp: Date.now(),
       coords:    { ..._lastCoords },
+      vpsPose:   _lastVPSPose,   // Track 4 — null until the VPS provider localises
     }));
   }
 
@@ -296,6 +334,7 @@ const LocationModule = (function () {
     _smoothedHeading  = null;
     _displayedHeading = null;
     _gpsPhase         = 0;
+    _stopVPSLoop();
     _log("Location capture stopped");
   }
 
@@ -331,6 +370,9 @@ const LocationModule = (function () {
       <div id="loc-lng">LNG  —</div>
       <div id="loc-heading">HDG  —</div>
       <div id="loc-accuracy" style="color:var(--text-muted, #5a6a78);font-size:10px">ACC  —</div>
+      <div id="loc-pitch" style="color:var(--text-muted, #5a6a78);font-size:10px">PIT  —</div>
+      <div id="loc-roll"  style="color:var(--text-muted, #5a6a78);font-size:10px">ROL  —</div>
+      <div id="loc-vps"   style="color:var(--text-muted, #5a6a78);font-size:10px">VPS  —</div>
       <!-- Future M3+ placeholders (hidden until implemented) -->
       <div id="loc-altitude"    style="display:none">ALT  —</div>
       <div id="loc-speed"       style="display:none">SPD  —</div>
@@ -385,13 +427,104 @@ const LocationModule = (function () {
       _set("loc-accuracy", "ACC  ±" + Math.round(coords.accuracy) + "m");
     }
 
+    // ── Track 1: pitch / roll ─────────────────────────────────────────────────
+    if (coords.pitch !== null && coords.pitch !== undefined) {
+      _set("loc-pitch", "PIT  " + coords.pitch.toFixed(1) + "°");
+    }
+    if (coords.roll !== null && coords.roll !== undefined) {
+      _set("loc-roll",  "ROL  " + coords.roll.toFixed(1) + "°");
+    }
+
     // Dispatch event for future modules (M3+)
     window.dispatchEvent(new CustomEvent("location-update", { detail: coords }));
+  }
+
+  // ── Track 4: VPS overlay row ─────────────────────────────────────────────────
+  // Separate from _updateOverlay() because vpsPose isn't part of `coords` —
+  // it travels as its own top-level field in the data channel message.
+  function _updateVPSOverlay() {
+    if (!_lastVPSPose) {
+      _set("loc-vps", "VPS  " + (_vpsReady ? "Localising…" : "—"));
+      return;
+    }
+    const confident = _lastVPSPose.confidence >= _VPS_CONFIDENCE_OK;
+    _set("loc-vps",
+      "VPS  " + (confident ? "✓" : "~") +
+      " (" + Math.round(_lastVPSPose.confidence * 100) + "%)"
+    );
   }
 
   function _compassPoint(deg) {
     const points = ["N","NE","E","SE","S","SW","W","NW","N"];
     return points[Math.round(deg / 45) % 8];
+  }
+
+  // ── Track 4: VPS provider lifecycle ──────────────────────────────────────────
+
+  /**
+   * Initialise the VPS provider (Phase 1: WebXRProvider, no Multiset key needed).
+   * Not called automatically from init() — WebXR session requests must happen
+   * from inside (or shortly after) a user gesture, and this module doesn't own
+   * the "start camera" button. Call `LocationModule.startVPS()` from the same
+   * handler that acquires the local media stream (e.g. right after
+   * `localVideo.srcObject = stream` in webrtc.js).
+   */
+  async function _initVPS() {
+    if (typeof window.checkVPSSupport !== "function" || typeof window.createVPSProvider !== "function") {
+      _log("VPS provider not available on window — is the Vite bundle loaded?", "warn");
+      _set("loc-vps", "VPS  N/A");
+      return;
+    }
+
+    const cap = await window.checkVPSSupport();
+    if (!cap.supported) {
+      _log("VPS not supported: " + cap.reason, "warn");
+      _set("loc-vps", "VPS  N/A");
+      return;
+    }
+
+    try {
+      _vpsProvider = window.createVPSProvider();
+      await _vpsProvider.init();
+      _vpsReady = true;
+      _startVPSLoop();
+      _log("VPS provider initialised", "success");
+    } catch (err) {
+      _log("VPS init failed: " + err.message, "error");
+      _set("loc-vps", "VPS  Error");
+    }
+  }
+
+  /**
+   * Poll the VPS provider at ~30Hz and cache the pose, refresh the overlay,
+   * and let it ride along on the next _transmit() tick (driven separately by
+   * the data-channel update interval, same as GPS/compass).
+   */
+  function _startVPSLoop() {
+    if (_vpsPollId !== null) return; // already running
+    _vpsPollId = setInterval(async () => {
+      if (!_vpsProvider) return;
+      try {
+        _lastVPSPose = await _vpsProvider.getPose();
+        _updateVPSOverlay();
+      } catch (err) {
+        _log("VPS getPose() error: " + err.message, "warn");
+      }
+    }, _VPS_POLL_MS);
+  }
+
+  /** Stop polling and tear down the VPS session. */
+  function _stopVPSLoop() {
+    if (_vpsPollId !== null) {
+      clearInterval(_vpsPollId);
+      _vpsPollId = null;
+    }
+    if (_vpsProvider) {
+      _vpsProvider.destroy();
+      _vpsProvider = null;
+    }
+    _vpsReady    = false;
+    _lastVPSPose = null;
   }
 
   function _set(id, text) {
@@ -411,7 +544,11 @@ const LocationModule = (function () {
     attachDataChannel,
     onDataChannel,
     toggleOverlay,
-    getLastCoords: () => ({ ..._lastCoords }),
+    getLastCoords:  () => ({ ..._lastCoords }),
+    // Track 4 — call from the camera-start handler, after the local stream
+    // is acquired and inside the originating user gesture (WebXR requirement).
+    startVPS:       _initVPS,
+    getLastVPSPose: () => (_lastVPSPose ? { ..._lastVPSPose } : null),
   };
 
 })();

@@ -14,6 +14,13 @@
  * Phase 2 note:
  *   When the Multiset SDK becomes a dependency, add it here under
  *   optimizeDeps.include and update multiset-provider.js accordingly.
+ *
+ * js-aruco2 note:
+ *   No optimizeDeps entry is needed for js-aruco2. It is never imported
+ *   as a normal module — only its raw source text is loaded via Vite's
+ *   `?raw` suffix (see src/aruco-detector.js for why). `?raw` imports are
+ *   treated as static assets, not JS modules, so Vite's dependency
+ *   pre-bundling step doesn't apply to them.
  */
 
 import { defineConfig } from 'vite';
@@ -30,10 +37,5 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap:   true,   // flip to false when shipping Phase 3 production build
     minify:      false,  // keep readable during Phase 1 development
-  },
-
-  // Force Vite to pre-bundle js-aruco2 (CommonJS package) into ESM for dev mode
-  optimizeDeps: {
-    include: ['js-aruco2'],
   },
 });

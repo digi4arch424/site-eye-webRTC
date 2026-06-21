@@ -1,119 +1,132 @@
-# ── Construction Cam — Deploy Workflow ───────────────────────────────────────
-# Triggered on every push to main branch.
-# Injects GitHub secrets into config.js placeholders,
-# then deploys to GitHub Pages.
-#
-# Required GitHub Secrets (Settings → Secrets → Actions):
-#   SIGNALING_URL     — wss://your-server.onrender.com
-#   TURN_SERVERS      — JSON array of ICE server objects (see .env.example)
-#
-# Optional secrets (add when ready):
-#   METERED_USERNAME  — Metered.ca TURN username
-#   METERED_CREDENTIAL — Metered.ca TURN credential
+name: Build and deploy to GitHub Pages
 
-name: Deploy to GitHub Pages
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers
+# ─────────────────────────────────────────────────────────────────────────────
 on:
   push:
-    branches:
-      - main
-  # Allow manual trigger from GitHub Actions tab
-  workflow_dispatch:
+    branches: [main]
+  workflow_dispatch:        # allows manual re-deploy from the Actions tab
 
-permissions:
-  contents: read
-  pages:    write
-  id-token: write
-
-# Only one deployment at a time
+# Cancel any in-progress deployment when a new push arrives
 concurrency:
-  group:              "pages"
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
+# contents: write  — needed to push package-lock.json on first run
+#                    and to push the built site to the gh-pages branch
+permissions:
+  contents: write
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job
+# ─────────────────────────────────────────────────────────────────────────────
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    environment:
-      name: github-pages
-      url:  ${{ steps.deployment.outputs.page_url }}
-
     steps:
 
-      # ── 1. Checkout repo ──────────────────────────────────────────────────
-      - name: Checkout
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Use GITHUB_TOKEN with write permission so the lock-file commit step
+          # can push back to main without a separate PAT.
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── PATCH: build Vite bundle ──────────────────────────────────────────
-
-      - name: Set up Node.js
+      # ── 2. Node.js ──────────────────────────────────────────────────────────
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      - name: Install npm dependencies
-        run: npm ci
+      # npm cache — only active once package-lock.json has been committed.
+      # Skipped silently on the very first run (file doesn't exist yet).
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        if: hashFiles('bundle/package-lock.json') != ''
+        with:
+          path: ~/.npm
+          key: npm-bundle-${{ hashFiles('bundle/package-lock.json') }}
+          restore-keys: npm-bundle-
 
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      # First run:  package-lock.json doesn't exist → npm install generates it,
+      #             workflow commits it back with [skip ci] so this run finishes,
+      #             the NEXT push uses npm ci for reproducible installs.
+      # All later runs: package-lock.json exists → npm ci (fast, reproducible).
+      - name: Install bundle dependencies
+        working-directory: bundle
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found — using npm ci"
+            npm ci
+          else
+            echo "No package-lock.json — running npm install and committing lock file"
+            npm install
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore(bundle): add package-lock.json [skip ci]"
+            git push
+            echo "Lock file committed — subsequent runs will use npm ci"
+          fi
+
+      # ── 4. Build Vite bundle ────────────────────────────────────────────────
+      # Outputs:  bundle/dist/bundle.js
+      #           bundle/dist/bundle.js.map   (sourcemap for dev builds)
       - name: Build Vite bundle
+        working-directory: bundle
         run: npm run build
 
-      # ── 2. Inject secrets into config.js ─────────────────────────────────
-      # Replaces %%PLACEHOLDER%% values with real secrets.
-      # The deployed file contains real values — the source file stays clean.
-      - name: Inject secrets into config.js
+      # ── 5. Inject runtime credentials ──────────────────────────────────────
+      # Uses | as the sed delimiter (not /) to avoid conflicts with
+      # JSON brackets and slashes inside the TURN_SERVERS value.
+      # The placeholder __TURN_SERVERS__ lives in config.js.
+      - name: Inject TURN server credentials
+        run: sed -i "s|__TURN_SERVERS__|${TURN_SERVERS}|g" config.js
         env:
-          SIGNALING_URL: ${{ secrets.SIGNALING_URL }}
-          TURN_SERVERS:  ${{ secrets.TURN_SERVERS }}
+          TURN_SERVERS: ${{ secrets.TURN_SERVERS }}
+
+      # ── 6. Stage deployment files ───────────────────────────────────────────
+      # _site/ receives only what GitHub Pages needs to serve:
+      #   • all root-level .html / .js / .css files (credentials now in config.js)
+      #   • bundle/dist/bundle.js  (the Vite output — nothing else from bundle/)
+      #   • .nojekyll              (stops Jekyll processing paths like bundle/dist/)
+      #
+      # Intentionally excluded from _site/:
+      #   bundle/node_modules/   bundle/src/   bundle/vite.config.js
+      #   bundle/package*.json   bundle/.eslintrc.cjs   bundle/.prettierrc
+      - name: Stage deployment files
         run: |
-          # Validate SIGNALING_URL secret is set
-          if [ -z "${SIGNALING_URL}" ]; then
-            echo "⚠ SIGNALING_URL secret not set — SIGNALING_URL will use hardcoded value in config.js"
-          else
-            sed -i "s|%%SIGNALING_URL%%|${SIGNALING_URL}|g" config.js
-            echo "✓ SIGNALING_URL injected"
-          fi
+          mkdir -p _site/bundle/dist
 
-          # Inject TURN_SERVERS if secret is set
-          if [ -n "${TURN_SERVERS}" ]; then
-            echo "${TURN_SERVERS}" > /tmp/turn_servers.json
-            python3 -c "
-import sys
-content = open('config.js').read()
-turn = open('/tmp/turn_servers.json').read().strip()
-content = content.replace('turnServers:  [],', 'turnServers:  ' + turn + ',')
-open('config.js', 'w').write(content)
-"
-            echo "✓ TURN_SERVERS injected"
-          else
-            echo "⚠ TURN_SERVERS secret not set — using empty array (same-network only)"
-          fi
+          # Prevent Jekyll from processing the site (required for paths under bundle/)
+          touch _site/.nojekyll
 
-          echo "✓ Secret injection complete"
+          # Copy all root-level web assets generically — new files are picked up
+          # automatically without editing this step.
+          find . -maxdepth 1 -type f \
+            \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name "*.ico" \) \
+            -exec cp {} _site/ \;
 
-      # ── 3. Verify injection (safe — only shows placeholder names) ─────────
-      - name: Verify config.js (no secrets logged)
-        run: |
-          echo "Checking config.js for un-replaced placeholders..."
-          if grep -q "%%" config.js; then
-            echo "⚠ Warning: unreplaced placeholders found in config.js"
-            grep "%%" config.js
-          else
-            echo "✓ All placeholders replaced"
-          fi
+          # Copy ONLY the built bundle output — not the full bundle/ directory
+          cp bundle/dist/bundle.js _site/bundle/dist/bundle.js
 
-      # ── 4. Setup GitHub Pages ─────────────────────────────────────────────
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+          # Print the manifest so it's visible in the Actions log
+          echo ""
+          echo "── Deployment manifest ──────────────────────"
+          find _site -type f | sort
+          echo "─────────────────────────────────────────────"
 
-      # ── 5. Upload site files ──────────────────────────────────────────────
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Upload entire repo root — GitHub Pages serves from here
-          path: "."
-
-      # ── 6. Deploy to GitHub Pages ─────────────────────────────────────────
+      # ── 7. Deploy to GitHub Pages ───────────────────────────────────────────
+      # Pushes _site/ to the gh-pages branch.
+      # force_orphan: true keeps that branch as a single flat commit —
+      # no deployment history bloating the branch over time.
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: _site
+          force_orphan: true

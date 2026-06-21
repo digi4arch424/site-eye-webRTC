@@ -81,11 +81,11 @@ jobs:
         run: npm run build
 
       # ── 5. Inject runtime credentials ──────────────────────────────────────
-      # Uses | as the sed delimiter (not /) to avoid conflicts with
+      # Uses # as the sed delimiter (not |) to avoid conflicts with
       # JSON brackets and slashes inside the TURN_SERVERS value.
       # The placeholder __TURN_SERVERS__ lives in config.js.
       - name: Inject TURN server credentials
-        run: sed -i "s|__TURN_SERVERS__|${TURN_SERVERS}|g" config.js
+        run: sed -i "s#__TURN_SERVERS__#${TURN_SERVERS}#g" config.js
         env:
           TURN_SERVERS: ${{ secrets.TURN_SERVERS }}
 

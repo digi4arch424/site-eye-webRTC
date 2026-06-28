@@ -80,18 +80,9 @@ jobs:
         working-directory: bundle
         run: npm run build
 
-      # ── 5. Inject runtime credentials ──────────────────────────────────────
-      # Uses # as the sed delimiter (not |) to avoid conflicts with
-      # JSON brackets and slashes inside the TURN_SERVERS value.
-      # The placeholder __TURN_SERVERS__ lives in config.js.
-      - name: Inject TURN server credentials
-        run: sed -i "s#__TURN_SERVERS__#${TURN_SERVERS}#g" config.js
-        env:
-          TURN_SERVERS: ${{ secrets.TURN_SERVERS }}
-
-      # ── 6. Stage deployment files ───────────────────────────────────────────
+      # ── 5. Stage deployment files ───────────────────────────────────────────
       # _site/ receives only what GitHub Pages needs to serve:
-      #   • all root-level .html / .js / .css files (credentials now in config.js)
+      #   • all root-level .html / .js / .css files (credentials hardcoded in config.js)
       #   • bundle/dist/bundle.js  (the Vite output — nothing else from bundle/)
       #   • .nojekyll              (stops Jekyll processing paths like bundle/dist/)
       #
@@ -120,7 +111,7 @@ jobs:
           find _site -type f | sort
           echo "─────────────────────────────────────────────"
 
-      # ── 7. Deploy to GitHub Pages ───────────────────────────────────────────
+      # ── 6. Deploy to GitHub Pages ───────────────────────────────────────────
       # Pushes _site/ to the gh-pages branch.
       # force_orphan: true keeps that branch as a single flat commit —
       # no deployment history bloating the branch over time.

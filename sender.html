@@ -40,7 +40,8 @@
     #sender-container {
       position: relative;
       width: 100vw;
-      height: 100vh;
+      height: 100vh;          /* fallback for older browsers */
+      height: 100dvh;         /* dynamic viewport — accounts for mobile browser chrome */
       display: flex;
       align-items: center;
       justify-content: center;

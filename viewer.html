@@ -3,14 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>DIGIARCH 424 — Viewer</title>
+  <meta name="theme-color" content="#0a0c0e">
+  <title>Site Cam — Viewer</title>
+  <link rel="stylesheet" href="style.css">
 
-  <!-- Phase 1 T3: Three.js r128 importmap                                    -->
-  <!-- r128 is pinned to match the Phase 2 occlusion shader PoC.              -->
-  <!-- Upgrade both together when the Phase 2 depth pass is implemented.      -->
+  <!-- Phase 1 Track 3: Three.js r128, pinned to match the Phase 2 occlusion -->
+  <!-- shader PoC. Upgrade both together if this version ever changes. -->
   <script type="importmap">
   {
     "imports": {
@@ -20,255 +18,160 @@
   </script>
 
   <style>
-    /* ── Reset ───────────────────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    /* ── Variables ───────────────────────────────────────────────────────── */
-    :root {
-      --bg:           #090c12;
-      --bg-glass:     rgba(9, 12, 18, 0.82);
-      --accent:       #39e83e;
-      --accent-dim:   rgba(57, 232, 62, 0.30);
-      --amber:        #f5a623;
-      --red:          #f87171;
-      --text:         #dce4f5;
-      --muted:        #7a90b8;
-      --mono:         'JetBrains Mono', 'Cascadia Code', monospace;
-      --sans:         -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
-    html, body {
-      height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      overflow: hidden;
-    }
-
-    /* ── Phase 1 T3: AR container ────────────────────────────────────────── */
-    /*                                                                        */
-    /* #ar-container holds:                                                   */
-    /*   1. #remoteVideo — WebRTC stream (Phase 0)                           */
-    /*   2. #ar-canvas   — Three.js renderer (injected by ViewerScene)       */
-    /*   3. #vps-overlay-status — VPS badge (injected by ViewerScene)        */
-    /*                                                                        */
-    #ar-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      overflow: hidden;
-    }
-
-    #remoteVideo {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    /* Three.js canvas (#ar-canvas) is positioned by ViewerScene via inline   */
-    /* styles — position:absolute, top:0, left:0, width:100%, height:100%,   */
-    /* pointer-events:none, z-index:10.                                       */
-
-    /* VPS status badge (#vps-overlay-status) is also injected by ViewerScene.*/
-
-    /* ── Top bar ─────────────────────────────────────────────────────────── */
-    #top-bar {
+    /* Phase 1: live badge — not in style.css, additive only */
+    #liveBadge {
       position: absolute;
-      top: 0; left: 0; right: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 16px;
-      padding-top: calc(14px + env(safe-area-inset-top));
-      background: linear-gradient(to bottom, rgba(9,12,18,0.70) 0%, transparent 100%);
-      z-index: 30;
-      pointer-events: none;
-    }
-
-    .brand-badge {
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--green);
+      color: var(--green);
+      padding: 3px 8px;
       font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      color: var(--accent);
-      background: rgba(9,12,18,0.70);
-      border: 0.5px solid var(--accent-dim);
-      border-radius: 5px;
-      padding: 4px 10px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border-radius: 2px;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.2s;
     }
+    #liveBadge.visible { opacity: 1; }
 
-    #conn-badge {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--muted);
-      background: rgba(9,12,18,0.70);
-      border: 0.5px solid rgba(122,144,184,.30);
-      border-radius: 5px;
-      padding: 4px 10px;
-    }
-    #conn-badge.live  { color: var(--accent); border-color: var(--accent-dim); }
-    #conn-badge.warn  { color: var(--amber);  border-color: rgba(245,166,35,.35); }
-    #conn-badge.error { color: var(--red);    border-color: rgba(248,113,113,.35); }
-
-    /* ── Idle state ──────────────────────────────────────────────────────── */
-    #idle-overlay {
+    #play-btn {
       position: absolute;
       inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      background: var(--bg);
-      z-index: 10;
+      margin: auto;
+      width: 64px;
+      height: 64px;
+      z-index: 5;
+      display: none;
     }
-    .idle-logo  { font-size: 36px; }
-    .idle-title { font-family: var(--mono); font-size: 14px; font-weight: 700;
-                  color: var(--accent); letter-spacing: .06em; }
-    .idle-sub   { font-size: 12px; color: var(--muted); }
   </style>
 </head>
 <body>
 
-<!-- ── AR viewport ──────────────────────────────────────────────────────── -->
-<div id="ar-container">
+<div class="app">
 
-  <!-- Idle state — hidden once WebRTC stream arrives -->
-  <div id="idle-overlay">
-    <div class="idle-logo">🏗</div>
-    <div class="idle-title">DIGIARCH 424</div>
-    <div class="idle-sub">Waiting for sender stream…</div>
-  </div>
+  <header class="header">
+    <svg class="header-logo" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <span class="header-title">Viewer</span>
+    <span class="header-sub" id="infoConnectedAt">—</span>
+    <a href="index.html" class="home-link">← Home</a>
+  </header>
 
-  <!-- Phase 0: remote video stream (WebRTC) -->
-  <!-- Phase 1 T3: Three.js canvas injected here by ViewerScene -->
-  <video id="remoteVideo" autoplay playsinline></video>
+  <main class="main">
 
-  <!-- Top bar -->
-  <div id="top-bar">
-    <div class="brand-badge">◈ DIGIARCH 424 · VIEWER</div>
-    <div id="conn-badge">Waiting</div>
-  </div>
+    <div class="video-panel">
+      <div class="video-label">Remote Camera</div>
 
-</div><!-- /ar-container -->
+      <!-- id="ar-container": the Phase 1 Track 3 Three.js canvas is injected
+           here by ViewerScene, positioned absolute/inset:0 — works directly
+           against .video-wrap's existing position:relative from style.css,
+           no extra wrapper needed. -->
+      <div class="video-wrap" id="ar-container">
+        <video id="remoteVideo" autoplay playsinline></video>
+
+        <div id="placeholder" class="video-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M23 7l-7 5 7 5V7z"/>
+            <rect x="1" y="5" width="15" height="14" rx="2"/>
+          </svg>
+          <span>Waiting for sender…</span>
+        </div>
+
+        <div id="liveBadge">● Live</div>
+        <button id="play-btn" aria-label="Play video">▶</button>
+
+        <div class="corner-mark corner-mark--tl"></div>
+        <div class="corner-mark corner-mark--tr"></div>
+        <div class="corner-mark corner-mark--bl"></div>
+        <div class="corner-mark corner-mark--br"></div>
+      </div>
+    </div>
+
+    <!-- #status before .status-indicator — required by the CSS sibling
+         combinator in style.css (see sender.html for the same note). -->
+    <div class="status-bar">
+      <span id="status" class="status">Initialising…</span>
+      <span class="status-indicator"></span>
+    </div>
+
+    <div class="controls">
+      <button id="connectBtn" class="btn">▶ Connect</button>
+      <button id="disconnectBtn" class="btn" style="display:none">■ Disconnect</button>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">State</div>
+        <div class="info-value" id="infoState">Offline</div>
+      </div>
+    </div>
+
+  </main>
+</div>
 
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Scripts                                                                -->
+<!-- Scripts — load order per app.js header comment. Do not reorder.       -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 
-<!-- Phase 0: project config -->
 <script src="config.js"></script>
 <script src="utils.js"></script>
+
+<!-- Phase 1: Vite bundle. jsQR not needed on the viewer — only the sender  -->
+<!-- runs detection; the viewer only displays results received over the     -->
+<!-- data channel. -->
+<script src="bundle/dist/bundle.js"></script>
+
+<!-- webrtc-network-modules — loaded from the shared repo via jsDelivr CDN.
+     Pin to a commit hash here instead of @main for production stability.
+     Repo: https://github.com/digi4arch424/webrtc-network-modules -->
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-b.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-c.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-a.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/signaling.js"></script>
+
+<script src="app.js"></script>
+<script src="debug.js"></script>
+<script src="diagnostics.js"></script>
+
+<script src="location.js"></script>
+<script src="markers.js"></script>
+
+<script src="viewer.js"></script>
 <script src="settings.js"></script>
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Phase 0: WebRTC viewer modules                                         -->
-<!-- Replace this comment with your existing viewer WebRTC scripts.        -->
-<!-- Example:                                                               -->
-<!--   <script src="webrtc-connection.js"></script>                         -->
-<!--   <script src="webrtc-signaling.js"></script>                          -->
-<!--   <script src="webrtc-viewer.js"></script>                             -->
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-
-
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Phase 0 data channel handler + Phase 1 additions (classic script)     -->
+<!-- Connect/disconnect button wiring.                                      -->
+<!-- viewer.js defines startViewer()/stopViewer() as plain functions, not   -->
+<!-- attached to window or wired to any button automatically — the original -->
+<!-- Phase 0 HTML presumably had inline onclick="startViewer()" attributes;  -->
+<!-- using addEventListener here instead to keep behaviour out of markup.   -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
   'use strict';
+  document.getElementById('connectBtn').addEventListener('click', startViewer);
+  document.getElementById('disconnectBtn').addEventListener('click', stopViewer);
 
-  const connBadge  = document.getElementById('conn-badge');
-  const idleOl     = document.getElementById('idle-overlay');
-
-  // ── Shared viewer state ───────────────────────────────────────────────────
-  // Phase 1 T3: ViewerScene reads these from window.* each render frame.
-  window._lastLocation     = null;   // latest location payload from sender
-  window._lastVPSPose      = null;   // Phase 1 T4
-  window._lastArucoMarkers = [];     // Phase 1 T1
-
-  // ── setConnectionStatus ───────────────────────────────────────────────────
-  // Called by Phase 0 WebRTC code to update the top-bar badge.
-  // State: 'live' | 'warn' | 'error' | ''
-  window.setConnectionStatus = function (text, state = '') {
-    connBadge.textContent = text;
-    connBadge.className   = state;
-  };
-
-  // ── onRemoteStreamArrived ─────────────────────────────────────────────────
-  // Called by Phase 0 WebRTC code when the remote stream is assigned.
-  // Hides the idle overlay.
-  window.onRemoteStreamArrived = function () {
-    idleOl.style.display = 'none';
-    window.setConnectionStatus('Live', 'live');
-  };
-
-  // ── Data channel message handler ──────────────────────────────────────────
-  // Called by Phase 0 WebRTC code when a data channel message arrives.
-  // Replace your existing onDataChannelMessage handler with this one, or
-  // call handleDataChannelMessage() from within your existing handler.
-  window.handleDataChannelMessage = function (rawMessage) {
-    let msg;
-    try {
-      msg = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
-    } catch (_e) {
-      return;
-    }
-
-    switch (msg.type) {
-
-      // ── Phase 0: location (GPS + compass + heading) ─────────────────────
-      case 'location': {
-        window._lastLocation = msg;
-
-        // Phase 1 T4: extract VPS pose for ViewerScene camera sync
-        if (msg.vpsPose) {
-          window._lastVPSPose = msg.vpsPose;
-          // Optional: fire a custom event for immediate consumption
-          window.dispatchEvent(
-            new CustomEvent('vps:pose:update', { detail: msg.vpsPose, bubbles: false })
-          );
-        }
-
-        // Phase 1 T1: extract ArUco markers if bundled in location message
-        if (msg.arucoMarkers && msg.arucoMarkers.length) {
-          window._lastArucoMarkers = msg.arucoMarkers;
-        }
-
-        // Existing Phase 0 overlay updates go here
-        // Example: document.getElementById('lat-display').textContent = msg.lat;
-        break;
-      }
-
-      // ── Phase 0: QR code ────────────────────────────────────────────────
-      case 'qr-code': {
-        console.log('[viewer] QR code:', msg.data);
-        // Phase 0: handle QR code display / navigation
-        break;
-      }
-
-      // ── Phase 1 T1+T2: ArUco markers ────────────────────────────────────
-      case 'aruco-markers': {
-        window._lastArucoMarkers = msg.markers;
-        // Phase 2 T4: used for BIM ↔ marker cross-reference
-        // Phase 1: stored for Three.js consumption (future use)
-        break;
-      }
-
-      default:
-        break;
-    }
-  };
-
-}());
+  // play-btn appears if autoplay is blocked by the browser (see viewer.js
+  // ontrack handler) — wire it to retry playback on tap.
+  document.getElementById('play-btn').addEventListener('click', () => {
+    const video = document.getElementById('remoteVideo');
+    video.muted = true;
+    video.play().then(() => {
+      document.getElementById('play-btn').style.display = 'none';
+    });
+  });
+})();
 </script>
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Phase 1 T3: Three.js AR overlay — ES module                           -->
-<!-- Uses importmap defined in <head> to resolve 'three'                    -->
+<!-- Phase 1 Track 3 — Three.js AR overlay.                                 -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <script type="module">
   import { ViewerScene } from './viewer-scene.js';
@@ -278,17 +181,13 @@
 
   let viewerScene = null;
 
-  // Initialise the Three.js overlay once the remote video stream has
-  // dimensions — required for the correct camera aspect ratio.
-  // 'loadedmetadata' fires when videoWidth / videoHeight are known.
   video.addEventListener('loadedmetadata', () => {
-    if (viewerScene) return;  // guard against duplicate events
+    if (viewerScene) return;
     viewerScene = new ViewerScene({ container, video });
     viewerScene.init();
-    console.log('[viewer.html] ViewerScene initialised');
+    if (window.debugLog) window.debugLog('ViewerScene initialised', 'success');
   });
 
-  // Clean up GPU resources when the tab closes
   window.addEventListener('beforeunload', () => {
     viewerScene?.destroy();
   });

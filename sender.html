@@ -3,419 +3,165 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>DIGIARCH 424 — Sender</title>
+  <meta name="theme-color" content="#0a0c0e">
+  <title>Site Cam — Sender</title>
+  <link rel="stylesheet" href="style.css">
   <style>
-    /* ── Reset ─────────────────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    /* ── Variables ──────────────────────────────────────────────────────── */
-    :root {
-      --bg:           #090c12;
-      --bg-glass:     rgba(9, 12, 18, 0.82);
-      --accent:       #39e83e;
-      --accent-dim:   rgba(57, 232, 62, 0.35);
-      --amber:        #f5a623;
-      --red:          #f87171;
-      --text:         #dce4f5;
-      --muted:        #7a90b8;
-      --border:       rgba(57, 232, 62, 0.25);
-      --mono:         'JetBrains Mono', 'Cascadia Code', monospace;
-      --sans:         -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --radius:       8px;
-    }
-
-    /* ── Base ────────────────────────────────────────────────────────────── */
-    html, body {
-      height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      overflow: hidden;
-    }
-
-    /* ── Camera container ────────────────────────────────────────────────── */
-    #sender-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;          /* fallback for older browsers */
-      height: 100dvh;         /* dynamic viewport — accounts for mobile browser chrome */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #000;
-    }
-
-    #localVideo {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    /* ── Top bar ─────────────────────────────────────────────────────────── */
-    #top-bar {
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 16px;
-      padding-top: calc(14px + env(safe-area-inset-top));
-      background: linear-gradient(to bottom, rgba(9,12,18,0.75) 0%, transparent 100%);
-      z-index: 20;
-      pointer-events: none;
-    }
-
-    .brand-badge {
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      color: var(--accent);
-      background: rgba(9,12,18,0.70);
-      border: 0.5px solid var(--accent-dim);
-      border-radius: 5px;
-      padding: 4px 10px;
-    }
-
-    #connection-status {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--muted);
-      background: rgba(9,12,18,0.70);
-      border: 0.5px solid rgba(122,144,184,0.30);
-      border-radius: 5px;
-      padding: 4px 10px;
-      pointer-events: none;
-    }
-
-    #connection-status.connected  { color: var(--accent); border-color: var(--accent-dim); }
-    #connection-status.connecting { color: var(--amber);  border-color: rgba(245,166,35,.35); }
-    #connection-status.error      { color: var(--red);    border-color: rgba(248,113,113,.35); }
-
-    /* ── Bottom control bar ──────────────────────────────────────────────── */
-    #control-bar {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      flex-wrap: wrap;
-      padding: 16px;
-      padding-bottom: calc(16px + env(safe-area-inset-bottom));
-      background: linear-gradient(to top, rgba(9,12,18,0.80) 0%, transparent 100%);
-      z-index: 20;
-    }
-
-    .btn {
-      font-family: var(--mono);
-      font-size: 13px;
-      font-weight: 600;
-      border: none;
-      border-radius: var(--radius);
-      padding: 10px 22px;
-      cursor: pointer;
-      transition: opacity .15s, transform .1s;
-      letter-spacing: .02em;
-      outline: none;
-    }
-    .btn:active { transform: scale(.96); }
-    .btn:disabled { opacity: .38; cursor: not-allowed; pointer-events: none; }
-
-    .btn-primary {
-      background: var(--accent);
-      color: #090c12;
-    }
-    .btn-danger {
-      background: var(--red);
-      color: #1a0505;
-    }
-    .btn-secondary {
-      background: rgba(57, 232, 62, 0.12);
-      color: var(--accent);
-      border: 0.5px solid var(--accent-dim);
-    }
-
-    /* ── VPS status pill ─────────────────────────────────────────────────── */
-    #vps-status-bar {
-      display: none;             /* shown by JS once checkVPSSupport resolves */
-      align-items: center;
-      gap: 8px;
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--muted);
-      background: rgba(9,12,18,0.75);
-      border: 0.5px solid rgba(122,144,184,.30);
-      border-radius: 5px;
-      padding: 5px 10px;
-    }
-    #vps-status-bar.active { color: var(--accent); border-color: var(--accent-dim); }
-    #vps-status-bar.warn   { color: var(--amber);  border-color: rgba(245,166,35,.35); }
-
-    /* ── Idle overlay (shown before camera starts) ───────────────────────── */
-    #idle-overlay {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      background: var(--bg);
-      z-index: 10;
-    }
-    #idle-overlay .idle-logo  { font-size: 36px; }
-    #idle-overlay .idle-title {
-      font-family: var(--mono);
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--accent);
-      letter-spacing: .06em;
-    }
-    #idle-overlay .idle-sub {
-      font-size: 12px;
-      color: var(--muted);
-    }
+    /* Sender-page-specific only — shared styles live in style.css */
+    #placeholder { user-select: none; }
   </style>
 </head>
 <body>
 
-<!-- ── Camera / sender viewport ─────────────────────────────────────────── -->
-<div id="sender-container">
+<div class="app">
 
-  <!-- Idle state — hidden once camera starts -->
-  <div id="idle-overlay">
-    <div class="idle-logo">📷</div>
-    <div class="idle-title">DIGIARCH 424</div>
-    <div class="idle-sub">Tap Start Camera to begin</div>
-  </div>
+  <header class="header">
+    <svg class="header-logo" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <span class="header-title">Sender</span>
+    <span class="header-sub" id="peerIdDisplay">—</span>
+    <a href="index.html" class="home-link">← Home</a>
+  </header>
 
-  <!-- Camera feed -->
-  <video id="localVideo" autoplay muted playsinline></video>
+  <main class="main">
 
-  <!-- Top bar: brand + connection status -->
-  <div id="top-bar">
-    <div class="brand-badge">◈ DIGIARCH 424 · SENDER</div>
-    <div id="connection-status">Not connected</div>
-  </div>
+    <div class="video-panel">
+      <div class="video-label">Local Camera</div>
+      <div class="video-wrap">
+        <video id="localVideo" autoplay muted playsinline></video>
 
-  <!-- Bottom controls -->
-  <div id="control-bar">
+        <div id="placeholder" class="video-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <span>Camera not started</span>
+        </div>
 
-    <!-- Start / Stop camera -->
-    <button id="start-btn" class="btn btn-primary">Start Camera</button>
-    <button id="stop-btn"  class="btn btn-danger"  disabled>Stop</button>
-
-    <!-- Phase 1 T4: Start AR (WebXR VPS) — visibility managed by JS -->
-    <button id="start-ar-btn" class="btn btn-secondary" style="display:none">
-      Start AR
-    </button>
-
-    <!-- Phase 1 T4: VPS status -->
-    <div id="vps-status-bar">
-      <span id="vps-status-text">VPS —</span>
+        <div class="corner-mark corner-mark--tl"></div>
+        <div class="corner-mark corner-mark--tr"></div>
+        <div class="corner-mark corner-mark--bl"></div>
+        <div class="corner-mark corner-mark--br"></div>
+      </div>
     </div>
 
-  </div>
+    <!-- status-bar: #status MUST come before .status-indicator — style.css uses
+         the general sibling combinator (.status--connected ~ .status-indicator)
+         to drive the indicator dot purely from the status element's class. -->
+    <div class="status-bar">
+      <span id="status" class="status">Initialising…</span>
+      <span class="status-indicator"></span>
+    </div>
 
-</div><!-- /sender-container -->
+    <div class="controls">
+      <button id="startBtn" class="btn">▶ Start Stream</button>
+      <button id="stopBtn"  class="btn" style="display:none">■ Stop</button>
+
+      <!-- Phase 1 Track 4: WebXR VPS. Hidden until checkVPSSupport() resolves
+           true (wired in the inline script near the bottom of this file). -->
+      <button id="start-ar-btn" class="btn" style="display:none">◎ Start AR</button>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">Network Mode</div>
+        <div class="info-value" id="network-mode-indicator">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">VPS Status</div>
+        <div class="info-value" id="vps-status-text">—</div>
+      </div>
+    </div>
+
+  </main>
+</div>
 
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Scripts — ORDER IS CRITICAL                                            -->
-<!-- bundle.js MUST load first so window.* globals are available           -->
+<!-- Scripts — load order per app.js header comment. Do not reorder.       -->
+<!-- config.js → utils.js → module-b/c/a.js → signaling.js → app.js →      -->
+<!-- debug.js → diagnostics.js → sender.js → settings.js                   -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 
-<!-- Phase 1 T2: Vite bundle — exposes ArucoDetector, OrientationTracker,  -->
-<!--             createVPSProvider, checkVPSSupport on window.*             -->
-<script src="bundle/dist/bundle.js"></script>
-
-<!-- Phase 0: jsQR — QR code detection library (CDN) -->
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-
-<!-- Phase 0: project config / utils / settings -->
 <script src="config.js"></script>
 <script src="utils.js"></script>
-<script src="settings.js"></script>
 
-<!-- Phase 0 + Phase 1: location, markers -->
+<!-- Phase 1: Vite bundle + jsQR. No ordering constraint relative to the   -->
+<!-- WebRTC modules below — LocationModule/MarkersModule only read these   -->
+<!-- globals lazily, inside functions called after DOMContentLoaded, by    -->
+<!-- which point every classic script on this page has already executed.  -->
+<script src="bundle/dist/bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<!-- webrtc-network-modules — loaded from the shared repo via jsDelivr CDN.
+     Pin to a commit hash here instead of @main for production stability.
+     Repo: https://github.com/digi4arch424/webrtc-network-modules -->
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-b.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-c.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-a.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/signaling.js"></script>
+
+<script src="app.js"></script>
+<script src="debug.js"></script>
+<script src="diagnostics.js"></script>
+
 <script src="location.js"></script>
 <script src="markers.js"></script>
 
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Phase 0: WebRTC Module A — PeerConnection + ICE + TURN setup          -->
-<!-- Replace this comment block with your existing WebRTC module scripts.   -->
-<!-- Example:                                                               -->
-<!--   <script src="webrtc-connection.js"></script>                         -->
-<!--   <script src="webrtc-signaling.js"></script>                          -->
-<!--   <script src="webrtc-sender.js"></script>                             -->
-<!-- ════════════════════════════════════════════════════════════════════════ -->
-
+<script src="sender.js"></script>
+<script src="settings.js"></script>
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
-<!-- Application wiring                                                    -->
+<!-- Phase 1 Track 4 — Start AR button wiring.                              -->
+<!-- Not part of sender.js (Phase 0) — kept separate so sender.js stays      -->
+<!-- untouched. LocationModule.startVPS() requires a user gesture (WebXR     -->
+<!-- requestSession), so this fires from the button's own click handler,     -->
+<!-- not from sender.js's getUserMedia() resolution (that gesture chain is   -->
+<!-- already consumed by the time its promise resolves on some browsers).    -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
   'use strict';
 
-  // ── Element refs ─────────────────────────────────────────────────────────
-  const localVideo    = document.getElementById('localVideo');
-  const idleOverlay   = document.getElementById('idle-overlay');
-  const startBtn      = document.getElementById('start-btn');
-  const stopBtn       = document.getElementById('stop-btn');
-  const startArBtn    = document.getElementById('start-ar-btn');
-  const vpsStatusBar  = document.getElementById('vps-status-bar');
-  const vpsStatusText = document.getElementById('vps-status-text');
-  const connStatus    = document.getElementById('connection-status');
+  const arBtn    = document.getElementById('start-ar-btn');
+  const vpsLabel = document.getElementById('vps-status-text');
+  const startBtn = document.getElementById('startBtn');
 
-  // ── sendDataChannel ───────────────────────────────────────────────────────
-  // Defined here as a no-op; overridden by WebRTC data channel setup below
-  // once the peer data channel opens. location.js and markers.js both call
-  // this global — do not rename it.
-  window.sendDataChannel = function (_payload) {
-    // Replaced by WebRTC data channel setup — see Phase 0 module code
-  };
-
-  // ── Camera capture ────────────────────────────────────────────────────────
-
-  let _stream = null;
-
-  async function startCapture() {
-    try {
-      _stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode:  { ideal: 'environment' }, // rear camera preferred
-          width:       { ideal: 1280 },
-          height:      { ideal: 720 },
-        },
-        audio: false,
-      });
-    } catch (err) {
-      console.error('[sender] getUserMedia failed:', err);
-      setStatus('Camera error: ' + err.message, 'error');
-      return;
-    }
-
-    localVideo.srcObject = _stream;
-    idleOverlay.style.display = 'none';
-
-    startBtn.disabled = true;
-    stopBtn.disabled  = false;
-
-    // Phase 0: start WebRTC peer connection
-    // ── Replace this comment with your Phase 0 WebRTC startPeerConnection()
-    //    call. Pass _stream to addTrack or the RTCPeerConnection as needed. ──
-
-    // Phase 1 T1 + T4: start location tracking (GPS + compass + orientation)
-    // Must be called here, inside the button-click user gesture, so that
-    // DeviceOrientationEvent.requestPermission() (iOS 13+) succeeds.
-    await window.locationTracker.start().catch(err =>
-      console.warn('[sender] locationTracker.start() error:', err)
-    );
-
-    // Phase 1 T1: start marker detection
-    localVideo.addEventListener('loadedmetadata', () => {
-      window.markerDetector.start(localVideo);
-    }, { once: true });
-
-    // Phase 1 T4: check VPS support and show/hide Start AR button
-    _checkVPSCapability();
-
-    setStatus('Connecting…', 'connecting');
-  }
-
-  function stopCapture() {
-    // Phase 1 T1+T4: stop all sensors
-    window.locationTracker.stop();
-    window.markerDetector.stop();
-
-    // Phase 0: close WebRTC peer connection
-    // ── Replace this comment with your Phase 0 closeConnection() call. ──
-
-    // Stop camera tracks
-    if (_stream) {
-      _stream.getTracks().forEach(t => t.stop());
-      _stream = null;
-    }
-    localVideo.srcObject = null;
-    idleOverlay.style.display = '';
-
-    startBtn.disabled = false;
-    stopBtn.disabled  = true;
-
-    // Hide AR button and VPS status
-    startArBtn.style.display    = 'none';
-    vpsStatusBar.style.display  = 'none';
-    vpsStatusBar.className      = '';
-
-    setStatus('Not connected');
-  }
-
-  // ── Phase 1 T4: VPS capability check + AR button ─────────────────────────
-
-  async function _checkVPSCapability() {
+  // Reveal the AR button once the camera has actually started — checking
+  // VPS support before that point is meaningless (no point offering AR
+  // before there's a stream to overlay it on).
+  startBtn.addEventListener('click', async () => {
     if (typeof window.checkVPSSupport !== 'function') return;
 
-    const cap = await window.checkVPSSupport();
-    if (cap.supported) {
-      startArBtn.style.display   = '';
-      vpsStatusBar.style.display = 'flex';
-      vpsStatusText.textContent  = 'VPS — tap to start';
-    } else {
-      vpsStatusBar.style.display = 'flex';
-      vpsStatusBar.classList.add('warn');
-      vpsStatusText.textContent  = 'VPS — ' + (cap.reason ?? 'not supported');
-    }
-  }
+    // Give sender.js's own getUserMedia() flow a moment to resolve before
+    // probing support, so the AR button doesn't flash in before the camera
+    // placeholder has even cleared.
+    setTimeout(async () => {
+      const cap = await window.checkVPSSupport();
+      if (cap.supported) {
+        arBtn.style.display = '';
+        vpsLabel.textContent = 'Tap Start AR';
+      } else {
+        vpsLabel.textContent = cap.reason || 'Not supported';
+      }
+    }, 500);
+  });
 
-  startArBtn.addEventListener('click', async () => {
-    startArBtn.disabled = true;
-    vpsStatusText.textContent = 'VPS — starting…';
-
+  arBtn.addEventListener('click', async () => {
+    arBtn.disabled = true;
+    vpsLabel.textContent = 'Starting…';
     try {
-      // _initVPS() triggers navigator.xr.requestSession() — must be called
-      // directly from a user gesture (this click handler satisfies that).
-      await window.locationTracker._initVPS();
-
-      vpsStatusBar.classList.add('active');
-      vpsStatusText.textContent = 'VPS — active';
-      startArBtn.style.display  = 'none';
+      await LocationModule.startVPS();
+      vpsLabel.textContent = 'Active';
+      arBtn.style.display = 'none';
     } catch (err) {
-      console.error('[sender] VPS start failed:', err);
-      vpsStatusBar.classList.add('warn');
-      vpsStatusText.textContent  = 'VPS — failed';
-      startArBtn.disabled        = false;
+      vpsLabel.textContent = 'Failed';
+      arBtn.disabled = false;
     }
   });
 
-  // ── Connection status helper ──────────────────────────────────────────────
-
-  /**
-   * Update the top-bar connection indicator.
-   * @param {string} text
-   * @param {'connected'|'connecting'|'error'|''} [state]
-   */
-  function setStatus(text, state = '') {
-    connStatus.textContent = text;
-    connStatus.className   = state;
-  }
-
-  // Expose for Phase 0 WebRTC code to call when peer state changes
-  window.setConnectionStatus = setStatus;
-
-  // ── Button wiring ─────────────────────────────────────────────────────────
-  startBtn.addEventListener('click', startCapture);
-  stopBtn.addEventListener ('click', stopCapture);
-
-  // ── Page lifecycle ────────────────────────────────────────────────────────
-  window.addEventListener('beforeunload', stopCapture);
-
-}());
+})();
 </script>
 
 </body>

@@ -1,0 +1,353 @@
+/* ─── Construction Camera System — Industrial UI ─────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap');
+
+:root {
+  --bg:           #0a0c0e;
+  --bg-panel:     #111418;
+  --bg-card:      #181d22;
+  --border:       #2a3038;
+  --border-hi:    #3d4a55;
+  --accent:       #f59e0b;
+  --accent-dim:   #92600a;
+  --accent-alpha: rgba(245,158,11,0.12);
+  --green:        #22c55e;
+  --red:          #ef4444;
+  --blue:         #38bdf8;
+  --purple:       #a78bfa;
+  --pink:         #f472b6;
+  --yellow:       #fbbf24;
+  --text:         #d4dde6;
+  --text-muted:   #5a6a78;
+  --text-dim:     #3d4a55;
+  --text-faint:   #2d3a44;
+  --mono:         'Share Tech Mono', monospace;
+  --sans:         'Barlow Condensed', sans-serif;
+  --radius:       4px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────────────── */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.header-logo {
+  width: 28px;
+  height: 28px;
+  fill: var(--accent);
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.header-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ─── Video Panel ────────────────────────────────────────────────────────── */
+.video-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+}
+
+.video-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0,0,0,0.7);
+  border: 1px solid var(--border-hi);
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  text-transform: uppercase;
+  z-index: 2;
+  border-radius: 2px;
+}
+
+.video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #050607;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.video-placeholder svg {
+  opacity: 0.3;
+}
+
+video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: none;
+}
+
+video.active {
+  display: block;
+}
+
+/* ─── Status Bar ─────────────────────────────────────────────────────────── */
+.status-bar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  transition: background 0.3s;
+}
+
+.status {
+  font-family: var(--mono);
+  font-size: 13px;
+  flex: 1;
+  color: var(--text-muted);
+  transition: color 0.3s;
+}
+
+.status--connecting { color: var(--blue); }
+.status--connecting ~ .status-indicator { background: var(--blue); box-shadow: 0 0 6px var(--blue); }
+
+.status--connected  { color: var(--text); }
+.status--connected  ~ .status-indicator { background: var(--text-muted); }
+
+.status--streaming  { color: var(--green); }
+.status--streaming  ~ .status-indicator { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s ease-in-out infinite; }
+
+.status--error      { color: var(--red); }
+.status--error      ~ .status-indicator { background: var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ─── Controls ───────────────────────────────────────────────────────────── */
+.controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Info Panel ─────────────────────────────────────────────────────────── */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.info-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.info-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.info-value {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* ─── Config Section ─────────────────────────────────────────────────────── */
+.config-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.config-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.config-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.config-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.config-input:focus {
+  border-color: var(--accent);
+}
+
+/* ─── Scan lines overlay ──────────────────────────────────────────────────── */
+.video-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.04) 2px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── Corner marks ────────────────────────────────────────────────────────── */
+.corner-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  z-index: 3;
+  pointer-events: none;
+}
+.corner-mark--tl { top: 6px;    left: 6px;    border-top: 2px solid var(--accent); border-left:  2px solid var(--accent); }
+.corner-mark--tr { top: 6px;    right: 6px;   border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+.corner-mark--bl { bottom: 6px; left: 6px;    border-bottom: 2px solid var(--accent); border-left:  2px solid var(--accent); }
+.corner-mark--br { bottom: 6px; right: 6px;   border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+/* ─── Home Link ──────────────────────────────────────────────────────────── */
+.home-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-left: auto;
+  transition: color 0.15s;
+}
+
+.home-link:hover {
+  color: var(--accent);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .main { padding: 10px; }
+  .header { padding: 10px 14px; }
+  .header-sub { display: none; }
+}

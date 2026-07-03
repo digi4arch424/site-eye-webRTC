@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0c0e">
+  <title>Site Cam — Viewer</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Phase 1 Track 3: Three.js r128, pinned to match the Phase 2 occlusion -->
+  <!-- shader PoC. Upgrade both together if this version ever changes. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <style>
+    /* Phase 1: live badge — not in style.css, additive only */
+    #liveBadge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid var(--green);
+      color: var(--green);
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border-radius: 2px;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    #liveBadge.visible { opacity: 1; }
+
+    #play-btn {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 64px;
+      height: 64px;
+      z-index: 5;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="header">
+    <svg class="header-logo" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <span class="header-title">Viewer</span>
+    <span class="header-sub" id="infoConnectedAt">—</span>
+    <a href="index.html" class="home-link">← Home</a>
+  </header>
+
+  <main class="main">
+
+    <div class="video-panel">
+      <div class="video-label">Remote Camera</div>
+
+      <!-- id="ar-container": the Phase 1 Track 3 Three.js canvas is injected
+           here by ViewerScene, positioned absolute/inset:0 — works directly
+           against .video-wrap's existing position:relative from style.css,
+           no extra wrapper needed. -->
+      <div class="video-wrap" id="ar-container">
+        <video id="remoteVideo" autoplay playsinline></video>
+
+        <div id="placeholder" class="video-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M23 7l-7 5 7 5V7z"/>
+            <rect x="1" y="5" width="15" height="14" rx="2"/>
+          </svg>
+          <span>Waiting for sender…</span>
+        </div>
+
+        <div id="liveBadge">● Live</div>
+        <button id="play-btn" aria-label="Play video">▶</button>
+
+        <div class="corner-mark corner-mark--tl"></div>
+        <div class="corner-mark corner-mark--tr"></div>
+        <div class="corner-mark corner-mark--bl"></div>
+        <div class="corner-mark corner-mark--br"></div>
+      </div>
+    </div>
+
+    <!-- #status before .status-indicator — required by the CSS sibling
+         combinator in style.css (see sender.html for the same note). -->
+    <div class="status-bar">
+      <span id="status" class="status">Initialising…</span>
+      <span class="status-indicator"></span>
+    </div>
+
+    <div class="controls">
+      <button id="connectBtn" class="btn">▶ Connect</button>
+      <button id="disconnectBtn" class="btn" style="display:none">■ Disconnect</button>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">State</div>
+        <div class="info-value" id="infoState">Offline</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Scripts — load order per app.js header comment. Do not reorder.       -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+
+<script src="config.js"></script>
+<script src="utils.js"></script>
+
+<!-- Phase 1: Vite bundle. jsQR not needed on the viewer — only the sender  -->
+<!-- runs detection; the viewer only displays results received over the     -->
+<!-- data channel. -->
+<script src="bundle/dist/bundle.js"></script>
+
+<!-- webrtc-network-modules — loaded from the shared repo via jsDelivr CDN.
+     Pin to a commit hash here instead of @main for production stability.
+     Repo: https://github.com/digi4arch424/webrtc-network-modules -->
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-b.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-c.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-a.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/signaling.js"></script>
+
+<script src="app.js"></script>
+<script src="debug.js"></script>
+<script src="diagnostics.js"></script>
+
+<script src="location.js"></script>
+<script src="markers.js"></script>
+
+<script src="viewer.js"></script>
+<script src="settings.js"></script>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Connect/disconnect button wiring.                                      -->
+<!-- viewer.js defines startViewer()/stopViewer() as plain functions, not   -->
+<!-- attached to window or wired to any button automatically — the original -->
+<!-- Phase 0 HTML presumably had inline onclick="startViewer()" attributes;  -->
+<!-- using addEventListener here instead to keep behaviour out of markup.   -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  'use strict';
+  document.getElementById('connectBtn').addEventListener('click', startViewer);
+  document.getElementById('disconnectBtn').addEventListener('click', stopViewer);
+
+  // play-btn appears if autoplay is blocked by the browser (see viewer.js
+  // ontrack handler) — wire it to retry playback on tap.
+  document.getElementById('play-btn').addEventListener('click', () => {
+    const video = document.getElementById('remoteVideo');
+    video.muted = true;
+    video.play().then(() => {
+      document.getElementById('play-btn').style.display = 'none';
+    });
+  });
+})();
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Phase 1 Track 3 — Three.js AR overlay.                                 -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script type="module">
+  import { ViewerScene } from './viewer-scene.js';
+
+  const container = document.getElementById('ar-container');
+  const video     = document.getElementById('remoteVideo');
+
+  let viewerScene = null;
+
+  video.addEventListener('loadedmetadata', () => {
+    if (viewerScene) return;
+    viewerScene = new ViewerScene({ container, video });
+    viewerScene.init();
+    if (window.debugLog) window.debugLog('ViewerScene initialised', 'success');
+  });
+
+  window.addEventListener('beforeunload', () => {
+    viewerScene?.destroy();
+  });
+</script>
+
+</body>
+</html>

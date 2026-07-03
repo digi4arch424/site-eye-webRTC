@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0c0e">
+  <title>Site Cam — Sender</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Sender-page-specific only — shared styles live in style.css */
+    #placeholder { user-select: none; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="header">
+    <svg class="header-logo" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <span class="header-title">Sender</span>
+    <span class="header-sub" id="peerIdDisplay">—</span>
+    <a href="index.html" class="home-link">← Home</a>
+  </header>
+
+  <main class="main">
+
+    <div class="video-panel">
+      <div class="video-label">Local Camera</div>
+      <div class="video-wrap">
+        <video id="localVideo" autoplay muted playsinline></video>
+
+        <div id="placeholder" class="video-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <span>Camera not started</span>
+        </div>
+
+        <div class="corner-mark corner-mark--tl"></div>
+        <div class="corner-mark corner-mark--tr"></div>
+        <div class="corner-mark corner-mark--bl"></div>
+        <div class="corner-mark corner-mark--br"></div>
+      </div>
+    </div>
+
+    <!-- status-bar: #status MUST come before .status-indicator — style.css uses
+         the general sibling combinator (.status--connected ~ .status-indicator)
+         to drive the indicator dot purely from the status element's class. -->
+    <div class="status-bar">
+      <span id="status" class="status">Initialising…</span>
+      <span class="status-indicator"></span>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn" class="btn">▶ Start Stream</button>
+      <button id="stopBtn"  class="btn" style="display:none">■ Stop</button>
+
+      <!-- Phase 1 Track 4: WebXR VPS. Hidden until checkVPSSupport() resolves
+           true (wired in the inline script near the bottom of this file). -->
+      <button id="start-ar-btn" class="btn" style="display:none">◎ Start AR</button>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">Network Mode</div>
+        <div class="info-value" id="network-mode-indicator">—</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">VPS Status</div>
+        <div class="info-value" id="vps-status-text">—</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Scripts — load order per app.js header comment. Do not reorder.       -->
+<!-- config.js → utils.js → module-b/c/a.js → signaling.js → app.js →      -->
+<!-- debug.js → diagnostics.js → sender.js → settings.js                   -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+
+<script src="config.js"></script>
+<script src="utils.js"></script>
+
+<!-- Phase 1: Vite bundle + jsQR. No ordering constraint relative to the   -->
+<!-- WebRTC modules below — LocationModule/MarkersModule only read these   -->
+<!-- globals lazily, inside functions called after DOMContentLoaded, by    -->
+<!-- which point every classic script on this page has already executed.  -->
+<script src="bundle/dist/bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<!-- webrtc-network-modules — loaded from the shared repo via jsDelivr CDN.
+     Pin to a commit hash here instead of @main for production stability.
+     Repo: https://github.com/digi4arch424/webrtc-network-modules -->
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-b.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-c.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/module-a.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/digi4arch424/webrtc-network-modules@main/signaling.js"></script>
+
+<script src="app.js"></script>
+<script src="debug.js"></script>
+<script src="diagnostics.js"></script>
+
+<script src="location.js"></script>
+<script src="markers.js"></script>
+
+<script src="sender.js"></script>
+<script src="settings.js"></script>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Phase 1 Track 4 — Start AR button wiring.                              -->
+<!-- Not part of sender.js (Phase 0) — kept separate so sender.js stays      -->
+<!-- untouched. LocationModule.startVPS() requires a user gesture (WebXR     -->
+<!-- requestSession), so this fires from the button's own click handler,     -->
+<!-- not from sender.js's getUserMedia() resolution (that gesture chain is   -->
+<!-- already consumed by the time its promise resolves on some browsers).    -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  'use strict';
+
+  const arBtn    = document.getElementById('start-ar-btn');
+  const vpsLabel = document.getElementById('vps-status-text');
+  const startBtn = document.getElementById('startBtn');
+
+  // Reveal the AR button once the camera has actually started — checking
+  // VPS support before that point is meaningless (no point offering AR
+  // before there's a stream to overlay it on).
+  startBtn.addEventListener('click', async () => {
+    if (typeof window.checkVPSSupport !== 'function') return;
+
+    // Give sender.js's own getUserMedia() flow a moment to resolve before
+    // probing support, so the AR button doesn't flash in before the camera
+    // placeholder has even cleared.
+    setTimeout(async () => {
+      const cap = await window.checkVPSSupport();
+      if (cap.supported) {
+        arBtn.style.display = '';
+        vpsLabel.textContent = 'Tap Start AR';
+      } else {
+        vpsLabel.textContent = cap.reason || 'Not supported';
+      }
+    }, 500);
+  });
+
+  arBtn.addEventListener('click', async () => {
+    arBtn.disabled = true;
+    vpsLabel.textContent = 'Starting…';
+    try {
+      await LocationModule.startVPS();
+      vpsLabel.textContent = 'Active';
+      arBtn.style.display = 'none';
+    } catch (err) {
+      vpsLabel.textContent = 'Failed';
+      arBtn.disabled = false;
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>
